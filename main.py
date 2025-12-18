@@ -46,8 +46,8 @@ class ZeissDowngradeTool:
         version_label = tk.Label(frame2, text="选择降级版本：", font=("Arial", 10))
         version_label.pack(pady=5)
 
-        # 修改3: 根据您的图片，将默认值改为6.8
-        self.version_var = tk.StringVar(value="6.8")
+        # 修改3: 根据您的图片，将默认值改为7.4
+        self.version_var = tk.StringVar(value="7.4")
         version_combo = ttk.Combobox(frame2, textvariable=self.version_var,
                                    values=self.versions, state="readonly", font=("Arial", 10), width=10)
         # 修改4: 让下拉框在frame2内居中
