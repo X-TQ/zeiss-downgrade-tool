@@ -23,26 +23,19 @@ class ZeissDowngradeTool:
         icon_name = "zeiss_icon.ico"
         icon_path = None
         
-        # 情况1: 如果程序被打包成EXE (由 PyInstaller 运行)
         if hasattr(sys, '_MEIPASS'):
-            # _MEIPASS是PyInstaller创建的临时解压目录，资源文件在里面
             base_path = sys._MEIPASS
             icon_path = os.path.join(base_path, icon_name)
-        
-        # 情况2: 开发环境直接运行Python脚本
         else:
-            # 图标与main.py在同一个目录
             base_path = os.path.dirname(os.path.abspath(__file__))
             icon_path = os.path.join(base_path, icon_name)
         
-        # 尝试加载图标
         if icon_path and os.path.exists(icon_path):
             try:
                 self.root.iconbitmap(icon_path)
                 print(f"图标加载成功: {icon_path}")
             except Exception as e:
                 print(f"警告: 无法加载图标文件 '{icon_path}'。原因: {e}")
-                print("程序将继续运行，但无自定义图标。")
         else:
             print(f"警告: 未找到图标文件 '{icon_name}'。请确保它存在于: {base_path}")
     
@@ -50,10 +43,10 @@ class ZeissDowngradeTool:
         """生成降级版本列表（无奇数，每次递减0.2）"""
         versions = []
         current = 7.4
-        while current >= 5.4:  # 从7.4递减到5.4
+        while current >= 5.4:
             versions.append(f"{current:.1f}")
             current -= 0.2
-            current = round(current, 1)  # 避免浮点数精度问题
+            current = round(current, 1)
         return versions
     
     def create_widgets(self):
@@ -70,14 +63,12 @@ class ZeissDowngradeTool:
         self.folder_label = tk.Label(frame1, text="未选择文件夹", font=("Arial", 9), fg="gray", wraplength=400)
         self.folder_label.pack(pady=5)
         
-        # 下拉框居中
         frame2 = tk.Frame(self.root)
         frame2.pack(pady=10)
         
         version_label = tk.Label(frame2, text="选择降级版本：", font=("Arial", 10))
         version_label.pack(pady=5)
         
-        # 注意：由于版本规则更改，当前列表中没有7.3，默认值改为7.4
         self.version_var = tk.StringVar(value="7.4")
         version_combo = ttk.Combobox(frame2, textvariable=self.version_var,
                                    values=self.versions, state="readonly", font=("Arial", 10), width=10)
@@ -105,7 +96,8 @@ class ZeissDowngradeTool:
             self.start_btn.config(state="normal")
             self.status_label.config(text="已选择文件夹，可以开始降级", fg="green")
     
-    def convert_encoding_to_ansi(self, file_path):
+    def convert_encoding_to_gbk(self, file_path):
+        """将文件内容读取并转换为GBK编码（即Windows ANSI）"""
         try:
             encodings_to_try = ['utf-8', 'gbk', 'gb2312', 'latin-1', 'cp1252', 'utf-8-sig']
             content = None
@@ -161,33 +153,53 @@ class ZeissDowngradeTool:
                 except:
                     pass
             
-            # 2. 处理指定文件
-            target_files = ["inspset", "inspection", "version", "username"]
+            # 2. 处理指定文件（inspset, inspection, username, version）
+            target_files = ["inspset", "inspection", "username", "version"]
+            files_processed = []
             
             for base_name in target_files:
+                file_found = False
                 for filename in os.listdir(self.selected_folder):
                     full_path = os.path.join(self.selected_folder, filename)
                     if os.path.isfile(full_path):
                         name_without_ext = os.path.splitext(filename)[0]
                         if name_without_ext.lower() == base_name.lower():
-                            content, success = self.convert_encoding_to_ansi(full_path)
+                            content, success = self.convert_encoding_to_gbk(full_path)
                             if success and content:
-                                # 所有目标文件统一使用 'ansi' 编码保存
-                                with open(full_path, 'w', encoding='ansi', errors='ignore') as f:
+                                # 关键修改1：使用 'gbk' 代替 'ansi'
+                                with open(full_path, 'w', encoding='gbk', errors='ignore') as f:
                                     f.write(content)
+                                files_processed.append(base_name)
+                                print(f"已转换编码: {filename} -> GBK")
+                            file_found = True
                             break
+                if not file_found:
+                    print(f"未找到文件: {base_name}")
             
-            # 3. 修改version文件
-            for filename in os.listdir(self.selected_folder):
-                if os.path.splitext(filename)[0].lower() == "version":
-                    version_file = os.path.join(self.selected_folder, filename)
-                    # version文件同样使用明确的 'ansi' 编码写入
-                    with open(version_file, 'w', encoding='ansi') as f:
-                        f.write(target_version)
-                    break
+            # 3. 修改version文件内容（无论原文件是否存在或已被转换）
+            # 关键修改2：确保version文件以GBK编码写入目标版本号
+            version_updated = False
+            version_file_path = os.path.join(self.selected_folder, "version")
+            try:
+                with open(version_file_path, 'w', encoding='gbk') as f:
+                    f.write(target_version)
+                version_updated = True
+                print(f"已将version文件内容修改为: {target_version} (GBK编码)")
+            except Exception as e:
+                print(f"写入version文件失败: {e}")
+            
+            # 4. 验证并输出结果
+            if version_updated:
+                # 可选：再次读取验证编码
+                try:
+                    with open(version_file_path, 'r', encoding='gbk') as f:
+                        verified_content = f.read().strip()
+                    print(f"验证version文件内容: '{verified_content}'")
+                except:
+                    print("警告：无法以GBK编码重新读取version文件验证。")
             
             self.status_label.config(text="恭喜您，降级成功！！！", fg="green")
-            messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}")
+            messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}\n处理文件: {', '.join(files_processed) if files_processed else '无'}")
             
             self.start_btn.config(state="disabled")
             self.folder_label.config(text="未选择文件夹", fg="gray")
