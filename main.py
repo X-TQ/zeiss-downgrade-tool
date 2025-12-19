@@ -27,12 +27,9 @@ class ZeissDowngradeTool:
         if icon_path and os.path.exists(icon_path):
             try:
                 self.root.iconbitmap(icon_path)
-                print(f"图标加载成功: {icon_path}")
-            except Exception as e:
-                print(f"警告: 无法加载图标文件 '{icon_path}'。原因: {e}")
-        else:
-            print(f"警告: 未找到图标文件 '{icon_name}'。请确保它存在于: {base_path}")
-    
+            except:
+                pass
+
     def generate_versions(self):
         versions = []
         current = 7.4
@@ -81,7 +78,7 @@ class ZeissDowngradeTool:
             self.status_label.config(text="已选择文件夹，可以开始降级", fg="green")
     
     def convert_file_to_gbk(self, file_path):
-        """将单个文件内容读取并转换为GBK编码（用于 inspset, inspection, username）"""
+        """转换普通文件为GBK编码"""
         try:
             encodings_to_try = ['utf-8', 'gbk', 'gb2312', 'latin-1', 'cp1252', 'utf-8-sig']
             content = None
@@ -89,7 +86,6 @@ class ZeissDowngradeTool:
                 try:
                     with open(file_path, 'r', encoding=enc) as f:
                         content = f.read()
-                    print(f"  读取成功，原编码: {enc}")
                     break
                 except:
                     continue
@@ -104,64 +100,170 @@ class ZeissDowngradeTool:
                         content = raw_data.decode('gbk')
                     except:
                         content = raw_data.decode('latin-1', errors='ignore')
-                print(f"  以二进制方式读取并解码。")
             
-            # 使用 errors='ignore' 忽略无法编码的字符
             with open(file_path, 'w', encoding='gbk', errors='ignore') as f:
                 f.write(content)
-            print(f"  转换成功 -> GBK编码")
             return True
         except Exception as e:
-            print(f"  转换失败: {e}")
+            print(f"转换 {os.path.basename(file_path)} 失败: {e}")
+            return False
+
+    def ultimate_create_gbk_version_file(self, folder_path, target_version):
+        """
+        【终极解决方案】创建GBK编码的version文件
+        尝试三种不同的方法，确保至少一种成功
+        """
+        print(f"\n=== 终极方案：创建GBK编码version文件 ===")
+        version_path = os.path.join(folder_path, "version")
+        
+        # 方法1：标准GBK二进制写入（最基本）
+        print(f"\n方法1：标准GBK二进制写入")
+        try:
+            gbk_bytes = target_version.encode('gbk', errors='ignore')
+            print(f"  编码 '{target_version}' -> GBK字节: {gbk_bytes.hex(' ')}")
+            with open(version_path, 'wb') as f:
+                f.write(gbk_bytes)
+            print(f"  写入成功")
+            if self._analyze_file_encoding(version_path, "方法1"):
+                return True
+        except Exception as e:
+            print(f"  方法1失败: {e}")
+        
+        # 方法2：使用ASCII兼容的子集（如果版本号只是数字和点）
+        print(f"\n方法2：使用纯ASCII写入（GBK兼容）")
+        try:
+            # 检查目标版本是否只包含ASCII字符（数字和点）
+            if all(ord(c) < 128 for c in target_version):
+                print(f"  版本 '{target_version}' 是纯ASCII字符")
+                with open(version_path, 'wb') as f:
+                    f.write(target_version.encode('ascii'))
+                print(f"  写入成功")
+                if self._analyze_file_encoding(version_path, "方法2"):
+                    return True
+        except Exception as e:
+            print(f"  方法2失败: {e}")
+        
+        # 方法3：使用Windows ANSI编码别名（cp936）
+        print(f"\n方法3：使用Windows代码页936（GBK别名）")
+        try:
+            with open(version_path, 'w', encoding='cp936', errors='ignore') as f:
+                f.write(target_version)
+            print(f"  写入成功")
+            if self._analyze_file_encoding(version_path, "方法3"):
+                return True
+        except Exception as e:
+            print(f"  方法3失败: {e}")
+        
+        # 方法4：写入一个明确的非ASCII字符来“锚定”GBK编码
+        print(f"\n方法4：添加GBK锚定字符")
+        try:
+            # 在版本号后添加一个中文分号（GBK明确字符）
+            content_with_anchor = target_version + "；"  # 中文分号，不是英文分号
+            gbk_bytes = content_with_anchor.encode('gbk')
+            print(f"  添加锚定字符 -> 字节: {gbk_bytes.hex(' ')}")
+            with open(version_path, 'wb') as f:
+                f.write(gbk_bytes)
+            print(f"  写入成功")
+            if self._analyze_file_encoding(version_path, "方法4"):
+                return True
+        except Exception as e:
+            print(f"  方法4失败: {e}")
+        
+        return False
+    
+    def _analyze_file_encoding(self, file_path, method_name):
+        """
+        深度分析文件编码，提供详细诊断信息
+        """
+        print(f"\n  [{method_name}] 开始深度编码分析:")
+        
+        # 1. 读取原始字节
+        with open(file_path, 'rb') as f:
+            raw_bytes = f.read()
+        
+        print(f"    文件大小: {len(raw_bytes)} 字节")
+        if raw_bytes:
+            print(f"    字节内容(HEX): {raw_bytes.hex(' ', 1)}")
+            print(f"    字节内容(ASCII表示): {repr(raw_bytes)}")
+        
+        # 2. 检查BOM（字节顺序标记）
+        bom_detected = "无"
+        if raw_bytes.startswith(b'\xef\xbb\xbf'):
+            bom_detected = "UTF-8 BOM (EF BB BF)"
+        elif raw_bytes.startswith(b'\xff\xfe'):
+            bom_detected = "UTF-16 LE BOM (FF FE)"
+        elif raw_bytes.startswith(b'\xfe\xff'):
+            bom_detected = "UTF-16 BE BOM (FE FF)"
+        print(f"    BOM检测: {bom_detected}")
+        
+        # 3. 尝试用不同编码解码
+        test_encodings = [
+            ('gbk', 'GBK/ANSI'),
+            ('utf-8', 'UTF-8'),
+            ('utf-8-sig', 'UTF-8 with BOM'),
+            ('latin-1', 'Latin-1/ISO-8859-1'),
+            ('cp1252', 'Windows-1252')
+        ]
+        
+        successful_encodings = []
+        for enc_code, enc_name in test_encodings:
+            try:
+                # 如果是带BOM的UTF-8，需要特殊处理
+                if enc_code == 'utf-8-sig' and bom_detected == "UTF-8 BOM (EF BB BF)":
+                    decoded = raw_bytes[3:].decode('utf-8') if len(raw_bytes) > 3 else ""
+                else:
+                    decoded = raw_bytes.decode(enc_code)
+                successful_encodings.append(f"{enc_name}('{decoded}')")
+            except UnicodeDecodeError:
+                pass
+        
+        if successful_encodings:
+            print(f"    可成功解码的编码: {', '.join(successful_encodings)}")
+        else:
+            print(f"    警告：无法用任何测试编码解码")
+        
+        # 4. 判断最可能的编码
+        # 优先级：GBK > UTF-8 > 其他
+        if any('GBK' in enc for enc in successful_encodings):
+            print(f"    【结论】文件很可能已经是GBK/ANSI编码")
+            return True
+        elif any('UTF-8' in enc for enc in successful_encodings):
+            print(f"    【警告】文件似乎是UTF-8编码")
+            return False
+        else:
+            print(f"    【不确定】无法确定编码类型")
             return False
     
-    def create_version_file_gbk(self, folder_path, target_version):
+    def test_notepad_detection(self, file_path):
         """
-        【核心解决方案】创建GBK编码的version文件（二进制方式）
-        完全绕过文本编码层，确保写入的就是GBK字节数据
+        模拟记事本编码检测逻辑
         """
-        print(f"\n=== 强制创建GBK编码的version文件 ===")
+        print(f"\n=== 模拟记事本编码检测 ===")
         
-        # 1. 先删除任何已存在的version文件
-        deleted = False
-        for filename in os.listdir(folder_path):
-            full_path = os.path.join(folder_path, filename)
-            if os.path.isfile(full_path):
-                name_without_ext = os.path.splitext(filename)[0]
-                if name_without_ext.lower() == "version":
-                    try:
-                        os.remove(full_path)
-                        print(f"  已删除旧文件: {filename}")
-                        deleted = True
-                    except Exception as e:
-                        print(f"  删除失败 {filename}: {e}")
+        with open(file_path, 'rb') as f:
+            first_1k = f.read(1024)
         
-        # 2. 创建新的version文件（二进制模式）
-        new_version_path = os.path.join(folder_path, "version")
+        # 检查BOM
+        if first_1k.startswith(b'\xef\xbb\xbf'):
+            print("  检测到UTF-8 BOM，记事本会显示为UTF-8")
+            return "utf-8"
+        
+        # 检查是否可能是UTF-8（无BOM）
         try:
-            # 核心步骤：将字符串明确编码为GBK字节，然后用二进制模式写入
-            gbk_bytes = target_version.encode('gbk', errors='ignore')
-            print(f"  将版本号 '{target_version}' 编码为GBK字节: {gbk_bytes.hex()}")
-            
-            with open(new_version_path, 'wb') as f:  # 'wb' 表示二进制写入
-                f.write(gbk_bytes)
-            
-            print(f"  已创建新文件 'version' (二进制GBK编码)")
-            
-            # 验证：尝试用GBK解码读取
-            try:
-                with open(new_version_path, 'rb') as f:
-                    read_bytes = f.read()
-                decoded_content = read_bytes.decode('gbk')
-                print(f"  验证成功: 文件可被GBK解码，内容为 '{decoded_content}'")
-            except Exception as e:
-                print(f"  验证警告: {e}")
-            
-            return True
-            
-        except Exception as e:
-            print(f"  创建文件失败: {e}")
-            return False
+            first_1k.decode('utf-8')
+            # 进一步检查：UTF-8有效性检查
+            # 简单检查：如果所有字节都是ASCII (<128)，记事本可能认为是ANSI
+            if all(b < 128 for b in first_1k):
+                print("  全部为ASCII字符，记事本可能显示为ANSI")
+                return "ansi-ascii"
+            else:
+                print("  有效的UTF-8序列（无BOM），记事本可能显示为UTF-8")
+                return "utf-8"
+        except:
+            pass
+        
+        print("  非UTF-8，记事本会显示为ANSI")
+        return "ansi"
     
     def start_downgrade(self):
         if not self.selected_folder:
@@ -189,7 +291,7 @@ class ZeissDowngradeTool:
                 except Exception as e:
                     print(f"删除 geoactuals 失败: {e}")
             
-            # 2. 处理 inspset, inspection, username 文件（原有逻辑）
+            # 2. 处理其他文件
             print(f"\n=== 处理 inspset, inspection, username 文件 ===")
             other_files = ["inspset", "inspection", "username"]
             processed_files = []
@@ -209,39 +311,36 @@ class ZeissDowngradeTool:
                 if not file_found:
                     print(f"未找到文件: {base_name}")
             
-            # 3. 【核心】使用专用函数创建version文件
-            version_success = self.create_version_file_gbk(self.selected_folder, target_version)
+            # 3. 终极方案创建version文件
+            version_path = os.path.join(self.selected_folder, "version")
+            version_success = self.ultimate_create_gbk_version_file(self.selected_folder, target_version)
+            
             if version_success:
                 processed_files.append("version")
+                
+                # 最终验证
+                print(f"\n=== 最终验证 ===")
+                if os.path.exists(version_path):
+                    self._analyze_file_encoding(version_path, "最终检查")
+                    self.test_notepad_detection(version_path)
+                    
+                    # 尝试读取并显示内容
+                    try:
+                        with open(version_path, 'r', encoding='gbk') as f:
+                            content = f.read()
+                        print(f"用GBK读取成功: '{content}'")
+                    except:
+                        try:
+                            with open(version_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                            print(f"用UTF-8读取成功: '{content}'")
+                        except:
+                            print("无法用GBK或UTF-8读取")
+            else:
+                print(f"\n【严重错误】所有创建version文件的方法都失败了！")
             
-            # 4. 最终验证
             print(f"\n=== 处理结果汇总 ===")
             print(f"已处理文件: {', '.join(processed_files) if processed_files else '无'}")
-            
-            # 特别验证version文件编码
-            version_check_path = os.path.join(self.selected_folder, "version")
-            if os.path.exists(version_check_path):
-                # 方法1：尝试用不同编码读取
-                test_results = []
-                for encoding in ['gbk', 'utf-8', 'utf-16']:
-                    try:
-                        with open(version_check_path, 'r', encoding=encoding) as f:
-                            content = f.read().strip()
-                        test_results.append(f"{encoding}: 成功 ('{content}')")
-                    except:
-                        test_results.append(f"{encoding}: 失败")
-                
-                print(f"编码测试: {', '.join(test_results)}")
-                
-                # 方法2：检查BOM（字节顺序标记）
-                with open(version_check_path, 'rb') as f:
-                    first_bytes = f.read(3)
-                bom_info = "无BOM"
-                if first_bytes.startswith(b'\xef\xbb\xbf'):
-                    bom_info = "有UTF-8 BOM"
-                elif first_bytes.startswith(b'\xff\xfe') or first_bytes.startswith(b'\xfe\xff'):
-                    bom_info = "有UTF-16 BOM"
-                print(f"BOM检查: {bom_info}")
             
             self.status_label.config(text="恭喜您，降级成功！！！", fg="green")
             messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}")
