@@ -32,7 +32,7 @@ class ZeissDowngradeTool:
 
     def generate_versions(self):
         versions = []
-        current = 7.4
+        current = 6.8
         while current >= 5.4:
             versions.append(f"{current:.1f}")
             current -= 0.2
@@ -53,7 +53,7 @@ class ZeissDowngradeTool:
         frame2.pack(pady=10)
         version_label = tk.Label(frame2, text="选择降级版本：", font=("Arial", 10))
         version_label.pack(pady=5)
-        self.version_var = tk.StringVar(value="7.4")
+        self.version_var = tk.StringVar(value="6.8")
         version_combo = ttk.Combobox(frame2, textvariable=self.version_var,
                                    values=self.versions, state="readonly", font=("Arial", 10), width=10)
         version_combo.pack(pady=5)
@@ -223,6 +223,12 @@ class ZeissDowngradeTool:
             print(f"  已创建新的version文件")
             print(f"  写入内容: '{target_version}'")
             print(f"  文件编码: ANSI (GBK)")
+            print(f"  ")
+            print(f"  ⚠️ 重要说明：")
+            print(f"  现代Windows记事本可能显示文件编码为'UTF-8'，这是正常现象！")
+            print(f"  对于只包含数字和字母的文件，记事本会默认显示UTF-8。")
+            print(f"  但文件实际是ANSI编码，蔡司软件能正确识别和使用。")
+            print(f"  如需确认，可以用其他编辑器（如Notepad++）查看编码。")
             
             # 步骤3: 验证文件是否成功创建
             if os.path.exists(version_path):
@@ -351,14 +357,22 @@ class ZeissDowngradeTool:
             self.status_label.config(text="正在处理...", fg="orange")
             self.root.update()
             
-            # 1. 删除geoactuals文件夹
+            # 1. 清空geoactuals文件夹内容但保留文件夹
             geoactuals_path = os.path.join(self.selected_folder, "geoactuals")
             if os.path.exists(geoactuals_path):
                 try:
-                    shutil.rmtree(geoactuals_path)
-                    print(f"已删除文件夹: geoactuals")
+                    # 删除文件夹内的所有文件和子文件夹
+                    for item in os.listdir(geoactuals_path):
+                        item_path = os.path.join(geoactuals_path, item)
+                        if os.path.isfile(item_path):
+                            os.remove(item_path)
+                            print(f"已删除文件: {item}")
+                        elif os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                            print(f"已删除子文件夹: {item}")
+                    print(f"已清空geoactuals文件夹内容，保留文件夹")
                 except Exception as e:
-                    print(f"删除 geoactuals 失败: {e}")
+                    print(f"清空 geoactuals 文件夹失败: {e}")
             
             # 2. 处理其他文件
             print(f"\n=== 处理 inspset, inspection, username 文件 ===")
