@@ -11,46 +11,71 @@ class ZeissDowngradeTool:
         self.root.geometry("500x380")
         self.root.resizable(False, False)
         
+        # 新增：尝试加载软件图标（与main.py同目录）
+        self.set_window_icon()
+
         self.selected_folder = ""
-        self.versions = self.generate_versions()
+        self.versions = self.generate_versions() # 此方法已按新规则更新
         self.create_widgets()
-    
+
+    def set_window_icon(self):
+        """尝试设置窗口图标，如果文件不存在则静默忽略"""
+        # 假设图标文件名为 zeiss_icon.ico，并与 main.py 在同一目录
+        icon_path = os.path.join(os.path.dirname(__file__), "zeiss_icon.ico")
+        if os.path.exists(icon_path):
+            try:
+                self.root.iconbitmap(icon_path)
+                print(f"已加载图标: {icon_path}")
+            except Exception as e:
+                print(f"加载图标失败 (可能格式不兼容): {e}")
+        else:
+            # 可以尝试其他常见名称或路径
+            fallback_names = ["icon.ico", "app.ico", "logo.ico"]
+            for name in fallback_names:
+                fallback_path = os.path.join(os.path.dirname(__file__), name)
+                if os.path.exists(fallback_path):
+                    try:
+                        self.root.iconbitmap(fallback_path)
+                        print(f"已加载备用图标: {fallback_path}")
+                        break
+                    except Exception as e:
+                        print(f"加载备用图标 {fallback_path} 失败: {e}")
+
     def generate_versions(self):
+        """生成降级版本列表（无奇数，每次递减0.2）"""
         versions = []
         current = 7.4
-        while current >= 6.0:
+        while current >= 5.4:  # 从7.4递减到5.4
             versions.append(f"{current:.1f}")
-            current -= 0.1
-            current = round(current, 1)
+            current -= 0.2
+            current = round(current, 1)  # 避免浮点数精度问题
         return versions
-    
+
     def create_widgets(self):
         title_label = tk.Label(self.root, text="蔡司降级工具", font=("Arial", 16, "bold"))
         title_label.pack(pady=10)
-        
+
         frame1 = tk.Frame(self.root)
         frame1.pack(pady=10, padx=20, fill='x')
-        
+
         open_btn = tk.Button(frame1, text="选择降级文件夹", command=self.select_folder,
                            font=("Arial", 11), bg="#4CAF50", fg="white", height=2, width=20)
         open_btn.pack(pady=5)
-        
+
         self.folder_label = tk.Label(frame1, text="未选择文件夹", font=("Arial", 9), fg="gray", wraplength=400)
         self.folder_label.pack(pady=5)
-        
-        # 修改1: 让整个下拉框选择区域在窗口水平居中
-        frame2 = tk.Frame(self.root)
-        frame2.pack(pady=10)  # 移除了 padx 参数，使框架可以自然居中
 
-        # 修改2: 让标签在frame2内居中
+        # 下拉框居中
+        frame2 = tk.Frame(self.root)
+        frame2.pack(pady=10)
+
         version_label = tk.Label(frame2, text="选择降级版本：", font=("Arial", 10))
         version_label.pack(pady=5)
 
-        # 修改3: 根据您的图片，将默认值改为7.4
+        # 注意：由于版本规则更改，当前列表中没有7.3，默认值改为7.4
         self.version_var = tk.StringVar(value="7.4")
         version_combo = ttk.Combobox(frame2, textvariable=self.version_var,
                                    values=self.versions, state="readonly", font=("Arial", 10), width=10)
-        # 修改4: 让下拉框在frame2内居中
         version_combo.pack(pady=5)
 
         frame3 = tk.Frame(self.root)
@@ -142,7 +167,8 @@ class ZeissDowngradeTool:
                         if name_without_ext.lower() == base_name.lower():
                             content, success = self.convert_encoding_to_ansi(full_path)
                             if success and content:
-                                with open(full_path, 'w', encoding='mbcs', errors='ignore') as f:
+                                # 核心修改1：所有目标文件统一使用 'ansi' 编码保存
+                                with open(full_path, 'w', encoding='ansi', errors='ignore') as f:
                                     f.write(content)
                             break
 
@@ -150,11 +176,11 @@ class ZeissDowngradeTool:
             for filename in os.listdir(self.selected_folder):
                 if os.path.splitext(filename)[0].lower() == "version":
                     version_file = os.path.join(self.selected_folder, filename)
-                    with open(version_file, 'w', encoding='mbcs') as f:
+                    # 核心修改2：version文件同样使用明确的 'ansi' 编码写入
+                    with open(version_file, 'w', encoding='ansi') as f:
                         f.write(target_version)
                     break
 
-            # 修改5: 将所有成功提示语更新
             self.status_label.config(text="恭喜您，降级成功！！！", fg="green")
             messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}")
 
