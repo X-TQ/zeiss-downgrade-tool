@@ -81,7 +81,7 @@ class ZeissDowngradeTool:
             self.status_label.config(text="已选择文件夹，可以开始降级", fg="green")
     
     def convert_file_to_gbk(self, file_path):
-        """将单个文件内容读取并转换为GBK编码（模仿其他成功文件的处理）"""
+        """将单个文件内容读取并转换为GBK编码（用于 inspset, inspection, username）"""
         try:
             encodings_to_try = ['utf-8', 'gbk', 'gb2312', 'latin-1', 'cp1252', 'utf-8-sig']
             content = None
@@ -102,7 +102,6 @@ class ZeissDowngradeTool:
                         content = raw_data.decode('gbk')
                     except:
                         content = raw_data.decode('latin-1', errors='ignore')
-            # 关键：确保使用 GBK 编码写入，并忽略无法编码的字符
             with open(file_path, 'w', encoding='gbk', errors='ignore') as f:
                 f.write(content)
             print(f"  转换成功: {os.path.basename(file_path)} -> GBK")
@@ -111,75 +110,42 @@ class ZeissDowngradeTool:
             print(f"  转换失败 {os.path.basename(file_path)}: {e}")
             return False
     
-    def process_version_file(self, folder_path, target_version):
+    def delete_and_recreate_version(self, folder_path, target_version):
         """
-        独立处理 version 文件：
-        1. 查找文件 (支持无扩展名或任意扩展名)
-        2. 如果找到，读取并转换编码后写入新版本
-        3. 如果没找到，创建新的 version 文件
+        核心解决方案：强制删除旧version文件，并创建新的GBK编码文件。
         """
-        print(f"\n=== 开始处理 version 文件 ===")
-        version_file_path = None
+        print(f"\n=== 处理 version 文件（删除并重建） ===")
         
-        # 1. 查找 version 文件
+        # 1. 查找并删除所有名为 `version` 的文件（无论扩展名）
+        deleted_files = []
         for filename in os.listdir(folder_path):
-            file_path = os.path.join(folder_path, filename)
-            if os.path.isfile(file_path):
+            full_path = os.path.join(folder_path, filename)
+            if os.path.isfile(full_path):
                 name_without_ext = os.path.splitext(filename)[0]
                 if name_without_ext.lower() == "version":
-                    version_file_path = file_path
-                    print(f"找到文件: {filename}")
-                    break
+                    try:
+                        os.remove(full_path)
+                        deleted_files.append(filename)
+                        print(f"  已删除旧文件: {filename}")
+                    except Exception as e:
+                        print(f"  删除 {filename} 时出错: {e}")
         
-        # 2. 如果找到文件，先转换编码再写入新版本
-        if version_file_path and os.path.exists(version_file_path):
-            print(f"处理现有文件: {os.path.basename(version_file_path)}")
-            # 先备份原内容（如果需要）
-            try:
-                with open(version_file_path, 'r', encoding='gbk') as f:
-                    old_content = f.read().strip()
-                    print(f"  原内容: '{old_content}'")
-            except:
-                # 如果无法用GBK读取，尝试其他编码
-                try:
-                    with open(version_file_path, 'r', encoding='utf-8') as f:
-                        old_content = f.read().strip()
-                        print(f"  原内容(UTF-8): '{old_content}'")
-                except:
-                    old_content = "未知"
-            
-            # 转换编码并写入新版本号
-            success = self.convert_file_to_gbk(version_file_path)
-            if success:
-                # 重新打开并写入目标版本号
-                with open(version_file_path, 'w', encoding='gbk') as f:
-                    f.write(target_version)
-                print(f"  已写入新版本: '{target_version}' (GBK编码)")
-                return True
-            else:
-                print("  警告：编码转换失败，尝试直接写入...")
-                # 转换失败，尝试直接写入
-                try:
-                    with open(version_file_path, 'w', encoding='gbk') as f:
-                        f.write(target_version)
-                    print(f"  已直接写入新版本: '{target_version}'")
-                    return True
-                except Exception as e:
-                    print(f"  直接写入失败: {e}")
-                    return False
-        
-        # 3. 如果没找到，创建新的 version 文件
+        if deleted_files:
+            print(f"  总计删除 {len(deleted_files)} 个旧文件。")
         else:
-            print("未找到 version 文件，创建新文件。")
-            new_version_path = os.path.join(folder_path, "version")
-            try:
-                with open(new_version_path, 'w', encoding='gbk') as f:
-                    f.write(target_version)
-                print(f"已创建新文件 'version'，内容: '{target_version}' (GBK编码)")
-                return True
-            except Exception as e:
-                print(f"创建 version 文件失败: {e}")
-                return False
+            print("  未找到名为 'version' 的旧文件。")
+        
+        # 2. 创建全新的 version 文件（无扩展名），并用 GBK 编码写入版本号
+        new_version_path = os.path.join(folder_path, "version")  # 无扩展名
+        try:
+            # 关键步骤：使用 'gbk' 编码创建和写入文件
+            with open(new_version_path, 'w', encoding='gbk') as f:
+                f.write(target_version)
+            print(f"  已创建新文件 'version'，内容: '{target_version}' (GBK编码)")
+            return True
+        except Exception as e:
+            print(f"  创建新 version 文件失败: {e}")
+            return False
     
     def start_downgrade(self):
         if not self.selected_folder:
@@ -211,7 +177,6 @@ class ZeissDowngradeTool:
             print(f"\n=== 处理 inspset, inspection, username 文件 ===")
             other_files = ["inspset", "inspection", "username"]
             processed_files = []
-            
             for base_name in other_files:
                 file_found = False
                 for filename in os.listdir(self.selected_folder):
@@ -226,31 +191,29 @@ class ZeissDowngradeTool:
                 if not file_found:
                     print(f"未找到文件: {base_name}")
             
-            # 3. 独立处理 version 文件
-            version_success = self.process_version_file(self.selected_folder, target_version)
+            # 3. 【核心修改】删除旧version文件，创建新的version文件
+            version_success = self.delete_and_recreate_version(self.selected_folder, target_version)
             
             # 4. 最终验证
             print(f"\n=== 处理结果汇总 ===")
             print(f"已处理普通文件: {', '.join(processed_files) if processed_files else '无'}")
             print(f"Version 文件处理: {'成功' if version_success else '失败'}")
             
-            # 验证 version 文件最终状态
-            version_check_path = os.path.join(self.selected_folder, "version")
-            if os.path.exists(version_check_path):
+            # 最终验证新 version 文件的状态
+            final_version_path = os.path.join(self.selected_folder, "version")
+            if os.path.exists(final_version_path):
+                # 方法一：尝试用GBK读取验证
                 try:
-                    # 尝试用GBK读取验证
-                    with open(version_check_path, 'r', encoding='gbk') as f:
+                    with open(final_version_path, 'r', encoding='gbk') as f:
                         final_content = f.read().strip()
-                    print(f"最终验证 - Version 文件内容: '{final_content}' (可被GBK解码)")
-                    # 尝试用UTF-8读取，如果失败则说明不是UTF-8
-                    try:
-                        with open(version_check_path, 'r', encoding='utf-8') as f:
-                            f.read()
-                        print("警告：文件可能仍兼容UTF-8编码，但GBK写入已成功。")
-                    except:
-                        print("确认：文件不是UTF-8编码。")
+                    print(f"最终验证 - 文件存在，内容: '{final_content}'")
+                    print("状态: 文件可被GBK解码，编码应为ANSI/GBK。")
+                except UnicodeDecodeError:
+                    print("警告: 无法用GBK解码新文件，编码可能有问题。")
                 except Exception as e:
-                    print(f"验证时读取version文件失败: {e}")
+                    print(f"验证时读取文件失败: {e}")
+            else:
+                print("错误: 最终 version 文件未找到。")
             
             self.status_label.config(text="恭喜您，降级成功！！！", fg="green")
             messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}")
