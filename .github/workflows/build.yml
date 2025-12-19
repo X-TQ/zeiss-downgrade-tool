@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4  # 此项也建议从v3升级至v4
+      - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -23,10 +23,14 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --name "蔡司降级工具" --clean main.py
+          pyinstaller --onefile --windowed ^
+                      --name "蔡司降级工具" ^
+                      --add-data "zeiss_icon.ico;." ^  # 关键修改：将图标文件打包进EXE
+                      --clean ^
+                      main.py
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4  # 关键修复：将v3改为v4
+        uses: actions/upload-artifact@v4
         with:
           name: 蔡司降级工具
           path: dist/蔡司降级工具.exe
