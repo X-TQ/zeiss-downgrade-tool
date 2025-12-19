@@ -127,34 +127,29 @@ class ZeissDowngradeTool:
     
     def create_ansi_version_file(self, folder_path, target_version):
         """
-        创建ANSI编码的version文件
-        通过在文件末尾添加特殊字节，让Windows记事本识别为ANSI编码
+        创建ANSI编码的version文件，确保Windows记事本识别为ANSI
+        通过在文件末尾添加特殊字节，让UTF-8解码失败，记事本就会使用ANSI
         """
         print(f"\n=== 创建ANSI编码的version文件 ===")
         version_path = os.path.join(folder_path, "version")
         
         try:
-            # 方法1：使用ANSI编码并添加一个在UTF-8中无效但在ANSI中有效的字节
-            print(f"方法1：使用ANSI编码添加特殊字节")
-            try:
-                # 先将版本号转换为GBK编码
-                gbk_bytes = target_version.encode('gbk')
-                
-                # 添加一个在ANSI中有效但在UTF-8中无效的字节序列
-                # 0x81是GBK编码的第一个字节，但不是有效的UTF-8起始字节
-                special_bytes = b'\x81'  # 这个字节单独存在时，UTF-8解码会失败
-                
-                with open(version_path, 'wb') as f:
-                    f.write(gbk_bytes)
-                    f.write(special_bytes)
-                
-                print(f"  写入成功：版本号 + 特殊字节")
-                print(f"  字节序列: {gbk_bytes.hex(' ')} {special_bytes.hex(' ')}")
-            except Exception as e:
-                print(f"  方法1失败: {e}")
+            # 将版本号转换为ASCII字节
+            version_bytes = target_version.encode('ascii')
             
-            # 验证
-            self.analyze_notepad_detection(version_path)
+            # 添加一个无效的UTF-8序列
+            # 0x81 是GBK编码中的一个字节，但不是有效的UTF-8起始字节
+            # 单独的0x81无法用UTF-8解码，所以记事本会回退到ANSI
+            invalid_utf8_bytes = b'\x81'
+            
+            with open(version_path, 'wb') as f:
+                f.write(version_bytes)
+                f.write(invalid_utf8_bytes)
+            
+            print(f"  已创建version文件")
+            print(f"  原始字节: {version_bytes.hex(' ')} {invalid_utf8_bytes.hex(' ')}")
+            print(f"  版本号: {target_version}")
+            print(f"  添加了特殊字节以确保ANSI编码")
             
             return True
             
@@ -162,182 +157,87 @@ class ZeissDowngradeTool:
             print(f"  创建version文件失败: {e}")
             return False
     
-    def create_ansi_version_file_advanced(self, folder_path, target_version):
+    def clean_version_file(self, folder_path, target_version):
         """
-        更高级的方法：创建确保被记事本识别为ANSI的version文件
-        通过在文件中插入无效的UTF-8序列来欺骗记事本
+        清理version文件：删除乱码字符，只保留版本号
+        但仍确保文件是ANSI编码
         """
-        print(f"\n=== 高级方法：创建ANSI编码version文件 ===")
+        print(f"\n=== 清理version文件，删除乱码字符 ===")
         version_path = os.path.join(folder_path, "version")
         
-        try:
-            # 策略：创建一个文件，其中包含一个无效的UTF-8序列
-            # 这样记事本无法用UTF-8解码，就会回退到ANSI
-            
-            # 版本号（纯ASCII部分）
-            version_str = target_version
-            
-            # 方法A：在文件末尾添加一个无效的UTF-8字节
-            print(f"方法A：添加无效UTF-8字节")
-            try:
-                # 将版本号编码为ASCII（所有版本号都是ASCII字符）
-                version_bytes = version_str.encode('ascii')
-                
-                # 添加一个单独的0x80字节（在UTF-8中，0x80-0xBF只能是连续字节）
-                # 但前面没有起始字节，所以是无效的UTF-8
-                invalid_utf8 = b'\x80'
-                
-                with open(version_path, 'wb') as f:
-                    f.write(version_bytes)
-                    f.write(invalid_utf8)
-                
-                print(f"  方法A成功")
-                print(f"  字节: {version_bytes.hex(' ')} {invalid_utf8.hex(' ')}")
-                
-                # 验证
-                result = self.analyze_notepad_detection(version_path)
-                if result == "ansi":
-                    print(f"  ✅ 方法A成功：记事本识别为ANSI")
-                    return True
-            except Exception as e:
-                print(f"  方法A失败: {e}")
-            
-            # 方法B：在版本号中插入一个无效UTF-8序列
-            print(f"\n方法B：插入无效UTF-8序列")
-            try:
-                # 创建字节数组
-                version_bytes = bytearray(version_str.encode('ascii'))
-                
-                # 在中间位置插入一个无效的UTF-8序列
-                # 0xC1 是一个过长的UTF-8起始字节（对于ASCII字符来说）
-                insert_pos = len(version_bytes) // 2
-                version_bytes.insert(insert_pos, 0xC1)
-                
-                with open(version_path, 'wb') as f:
-                    f.write(version_bytes)
-                
-                print(f"  方法B成功：在位置{insert_pos}插入了0xC1")
-                print(f"  字节: {version_bytes.hex(' ')}")
-                
-                # 验证
-                result = self.analyze_notepad_detection(version_path)
-                if result == "ansi":
-                    print(f"  ✅ 方法B成功：记事本识别为ANSI")
-                    return True
-            except Exception as e:
-                print(f"  方法B失败: {e}")
-            
-            # 方法C：使用GB2312编码添加一个中文字符，然后用零宽空格包围
-            print(f"\n方法C：使用GB2312编码")
-            try:
-                # 版本号 + 一个GB2312字符（中文句号）
-                content = version_str + "。"
-                gb2312_bytes = content.encode('gb2312')
-                
-                # 添加一个零宽空格（UTF-8中是EF BB BF，但在这里是无效的）
-                # 实际上我们添加一个字节0xEF，但后面不跟有效的UTF-8序列
-                final_bytes = gb2312_bytes + b'\xEF'
-                
-                with open(version_path, 'wb') as f:
-                    f.write(final_bytes)
-                
-                print(f"  方法C成功：版本号 + 中文句号 + 0xEF")
-                print(f"  字节: {final_bytes.hex(' ')}")
-                
-                # 验证
-                result = self.analyze_notepad_detection(version_path)
-                if result == "ansi":
-                    print(f"  ✅ 方法C成功：记事本识别为ANSI")
-                    return True
-            except Exception as e:
-                print(f"  方法C失败: {e}")
-            
-            # 方法D：终极方法 - 创建混合编码文件
-            print(f"\n方法D：混合编码文件")
-            try:
-                # 创建一个文件，前部分是ASCII，中间是无效UTF-8，后部分是ASCII
-                version_bytes = version_str.encode('ascii')
-                
-                # 创建一个字节数组
-                final_bytes = bytearray(version_bytes)
-                
-                # 添加一个无法用UTF-8解码的字节序列
-                # UTF-8规则：如果第一个字节是11110xxx (0xF0-0xF7)，需要后面跟3个10xxxxxx字节
-                # 我们只写第一个字节，不写后续字节
-                final_bytes.append(0xF0)  # 应该是4字节UTF-8序列的开始
-                # 但不添加后续的3个字节，所以UTF-8解码会失败
-                
-                with open(version_path, 'wb') as f:
-                    f.write(final_bytes)
-                
-                print(f"  方法D成功：版本号 + 0xF0（不完整的4字节UTF-8起始）")
-                print(f"  字节: {final_bytes.hex(' ')}")
-                
-                # 验证
-                result = self.analyze_notepad_detection(version_path)
-                if result == "ansi":
-                    print(f"  ✅ 方法D成功：记事本识别为ANSI")
-                    return True
-            except Exception as e:
-                print(f"  方法D失败: {e}")
-            
+        if not os.path.exists(version_path):
+            print(f"  version文件不存在")
             return False
+        
+        try:
+            # 读取文件原始字节
+            with open(version_path, 'rb') as f:
+                raw_bytes = f.read()
+            
+            print(f"  原始文件字节: {raw_bytes.hex(' ')}")
+            print(f"  原始字节数: {len(raw_bytes)}")
+            
+            # 方法1：提取所有ASCII字符（版本号应该是ASCII）
+            clean_bytes = bytearray()
+            for b in raw_bytes:
+                # ASCII可打印字符（包括数字和小数点）
+                if 32 <= b <= 126:
+                    clean_bytes.append(b)
+            
+            # 如果提取到了ASCII字符
+            if clean_bytes:
+                # 将字节转换回字符串
+                clean_str = clean_bytes.decode('ascii')
+                print(f"  提取的ASCII内容: '{clean_str}'")
+                
+                # 检查提取的内容是否以目标版本号开头
+                if clean_str.startswith(target_version):
+                    # 只保留版本号（去掉可能提取到的其他ASCII字符）
+                    # 使用正则表达式提取版本号格式（如7.4, 7.2等）
+                    import re
+                    version_pattern = r'\d+\.\d+'
+                    matches = re.findall(version_pattern, clean_str)
+                    
+                    if matches:
+                        # 取第一个匹配的版本号
+                        final_version = matches[0]
+                        print(f"  匹配到的版本号: {final_version}")
+                        
+                        # 用GBK编码写入，确保是ANSI格式
+                        with open(version_path, 'wb') as f:
+                            # 使用GBK编码写入，但不添加任何特殊字节
+                            gbk_bytes = final_version.encode('gbk')
+                            f.write(gbk_bytes)
+                        
+                        print(f"  清理完成，最终版本号: {final_version}")
+                        print(f"  最终字节: {gbk_bytes.hex(' ')}")
+                        return True
+                    else:
+                        print(f"  警告：未找到版本号格式，直接写入目标版本号")
+                else:
+                    print(f"  警告：提取的内容不以目标版本号开头")
+            
+            # 方法2：如果方法1失败，直接写入目标版本号
+            print(f"  使用方法2：直接写入目标版本号")
+            with open(version_path, 'wb') as f:
+                # 使用GBK编码写入
+                gbk_bytes = target_version.encode('gbk')
+                f.write(gbk_bytes)
+            
+            print(f"  直接写入目标版本号: {target_version}")
+            print(f"  最终字节: {gbk_bytes.hex(' ')}")
+            return True
             
         except Exception as e:
-            print(f"  高级方法失败: {e}")
-            return False
-    
-    def analyze_notepad_detection(self, file_path):
-        """
-        分析Windows记事本如何识别文件编码
-        """
-        print(f"\n--- 记事本编码识别分析 ---")
-        
-        with open(file_path, 'rb') as f:
-            raw_bytes = f.read()
-        
-        if not raw_bytes:
-            print("  文件为空")
-            return "empty"
-        
-        print(f"  文件大小: {len(raw_bytes)} 字节")
-        print(f"  字节内容(HEX): {raw_bytes.hex(' ', 1)}")
-        
-        # 检查BOM
-        if raw_bytes.startswith(b'\xef\xbb\xbf'):
-            print("  ⚠️ 检测到UTF-8 BOM - 记事本将显示为UTF-8")
-            return "utf-8-bom"
-        elif raw_bytes.startswith(b'\xff\xfe'):
-            print("  ⚠️ 检测到UTF-16 LE BOM - 记事本将显示为Unicode")
-            return "utf-16le"
-        elif raw_bytes.startswith(b'\xfe\xff'):
-            print("  ⚠️ 检测到UTF-16 BE BOM - 记事本将显示为Unicode big-endian")
-            return "utf-16be"
-        
-        # 检查是否是纯ASCII
-        is_ascii = all(b < 128 for b in raw_bytes)
-        if is_ascii:
-            print("  ✅ 所有字节都是ASCII (<128) - 记事本将显示为ANSI")
-            return "ansi"
-        
-        # 尝试UTF-8解码
-        try:
-            decoded = raw_bytes.decode('utf-8')
-            print(f"  ⚠️ 可以成功解码为UTF-8 - 记事本可能显示为UTF-8")
-            print(f"    解码内容: {repr(decoded)}")
-            return "utf-8"
-        except UnicodeDecodeError as e:
-            print(f"  ✅ 无法解码为UTF-8 - 记事本将显示为ANSI")
-            print(f"    UTF-8解码错误: {e}")
-            
-            # 尝试GBK解码
+            print(f"  清理version文件失败: {e}")
+            # 如果清理失败，尝试直接写入目标版本号
             try:
-                decoded = raw_bytes.decode('gbk')
-                print(f"    可以解码为GBK，内容: {repr(decoded)}")
+                with open(version_path, 'wb') as f:
+                    f.write(target_version.encode('gbk'))
+                print(f"  错误恢复：直接写入目标版本号")
+                return True
             except:
-                print(f"    也无法解码为GBK")
-            
-            return "ansi"
+                return False
     
     def test_notepad_detection(self, file_path):
         """
@@ -350,7 +250,7 @@ class ZeissDowngradeTool:
         
         if not raw_bytes:
             print("  文件为空")
-            return
+            return "empty"
         
         # 记事本的简单检测逻辑：
         # 1. 检查BOM
@@ -381,6 +281,31 @@ class ZeissDowngradeTool:
         except UnicodeDecodeError:
             print("  记事本会显示为: ANSI (无法解码为UTF-8)")
             return "ansi"
+    
+    def analyze_file_content(self, file_path):
+        """
+        分析文件内容和编码
+        """
+        print(f"\n=== 分析文件内容 ===")
+        
+        with open(file_path, 'rb') as f:
+            raw_bytes = f.read()
+        
+        if not raw_bytes:
+            print("  文件为空")
+            return
+        
+        print(f"  文件大小: {len(raw_bytes)} 字节")
+        print(f"  字节内容(HEX): {raw_bytes.hex(' ')}")
+        print(f"  字节内容(ASCII表示): {repr(raw_bytes)}")
+        
+        # 尝试用不同编码读取
+        for encoding in ['ascii', 'gbk', 'utf-8', 'latin-1']:
+            try:
+                content = raw_bytes.decode(encoding)
+                print(f"  用 {encoding} 解码: '{content}'")
+            except:
+                print(f"  无法用 {encoding} 解码")
     
     def start_downgrade(self):
         if not self.selected_folder:
@@ -428,8 +353,8 @@ class ZeissDowngradeTool:
                 if not file_found:
                     print(f"未找到文件: {base_name}")
             
-            # 3. 创建ANSI编码的version文件
-            print(f"\n=== 处理version文件 ===")
+            # 3. 创建ANSI编码的version文件（带特殊字节）
+            print(f"\n=== 创建version文件 ===")
             version_path = os.path.join(self.selected_folder, "version")
             
             # 如果version文件已存在，先备份
@@ -438,60 +363,79 @@ class ZeissDowngradeTool:
                     backup_path = version_path + ".backup"
                     shutil.copy2(version_path, backup_path)
                     print(f"  已备份原始version文件到: {backup_path}")
-                    
-                    # 分析原始文件的编码
-                    print(f"\n  分析原始version文件编码:")
-                    self.analyze_notepad_detection(version_path)
                 except:
                     print(f"  警告：无法备份version文件")
             
-            # 使用高级方法创建ANSI编码的version文件
-            version_success = self.create_ansi_version_file_advanced(self.selected_folder, target_version)
+            # 创建带特殊字节的version文件（确保ANSI编码）
+            version_created = self.create_ansi_version_file(self.selected_folder, target_version)
             
-            if version_success:
+            if version_created:
                 processed_files.append("version")
                 
-                # 最终验证
-                print(f"\n=== 最终验证 ===")
+                # 分析创建的文件
+                print(f"\n=== 分析创建的version文件 ===")
+                self.analyze_file_content(version_path)
                 
-                # 分析记事本如何识别
-                notepad_result = self.test_notepad_detection(version_path)
+                # 测试记事本如何识别
+                notepad_result_before = self.test_notepad_detection(version_path)
                 
-                # 尝试读取内容（忽略特殊字节）
-                print(f"\n  读取文件内容:")
-                try:
-                    # 尝试用ASCII读取（应该能读取版本号）
-                    with open(version_path, 'rb') as f:
-                        raw_bytes = f.read()
+                # 4. 清理version文件，删除乱码字符
+                print(f"\n=== 清理version文件，删除乱码字符 ===")
+                cleaned = self.clean_version_file(self.selected_folder, target_version)
+                
+                if cleaned:
+                    print(f"  ✅ 成功清理version文件")
                     
-                    # 提取ASCII部分（版本号）
-                    version_bytes = bytearray()
-                    for b in raw_bytes:
-                        if 32 <= b <= 126:  # 可打印ASCII字符
-                            version_bytes.append(b)
+                    # 分析清理后的文件
+                    print(f"\n=== 分析清理后的version文件 ===")
+                    self.analyze_file_content(version_path)
                     
-                    if version_bytes:
-                        version_str = version_bytes.decode('ascii')
-                        print(f"  提取的版本号: {version_str}")
+                    # 测试记事本如何识别清理后的文件
+                    notepad_result_after = self.test_notepad_detection(version_path)
+                    
+                    # 最终验证
+                    print(f"\n=== 最终验证 ===")
+                    
+                    # 验证文件内容
+                    try:
+                        with open(version_path, 'r', encoding='gbk') as f:
+                            content = f.read().strip()
+                        print(f"  用GBK读取version文件内容: '{content}'")
                         
-                        if version_str.startswith(target_version):
+                        # 检查内容是否正确
+                        if content == target_version:
                             print(f"  ✅ version文件内容正确")
                         else:
-                            print(f"  ⚠️ 版本号不匹配: 期望 '{target_version}', 实际 '{version_str}'")
+                            print(f"  ⚠️ 警告：version文件内容不匹配")
+                            print(f"     期望: '{target_version}'")
+                            print(f"     实际: '{content}'")
+                            
+                            # 尝试用ASCII读取
+                            try:
+                                with open(version_path, 'rb') as f:
+                                    raw_bytes = f.read()
+                                ascii_content = ""
+                                for b in raw_bytes:
+                                    if 32 <= b <= 126:
+                                        ascii_content += chr(b)
+                                print(f"     提取的ASCII字符: '{ascii_content}'")
+                            except:
+                                pass
+                    except Exception as e:
+                        print(f"  读取version文件失败: {e}")
+                    
+                    print(f"\n记事本识别结果:")
+                    print(f"  清理前: {notepad_result_before}")
+                    print(f"  清理后: {notepad_result_after}")
+                    
+                    if notepad_result_after == "ansi":
+                        print(f"  ✅ 成功：记事本将version文件识别为ANSI编码")
                     else:
-                        print(f"  ❌ 未找到版本号")
-                        
-                except Exception as e:
-                    print(f"  读取文件内容失败: {e}")
-                
-                print(f"\n记事本识别结果: {notepad_result}")
-                if notepad_result == "ansi":
-                    print(f"✅ 成功：记事本将显示为ANSI编码")
+                        print(f"  ⚠️ 注意：记事本可能将version文件识别为{notepad_result_after}")
                 else:
-                    print(f"⚠️ 注意：记事本可能显示为{notepad_result}")
-                
+                    print(f"\n❌ 清理version文件失败")
             else:
-                print(f"\n❌ 错误：创建ANSI编码的version文件失败！")
+                print(f"\n❌ 创建version文件失败！")
             
             print(f"\n=== 处理结果汇总 ===")
             print(f"已处理文件: {', '.join(processed_files) if processed_files else '无'}")
