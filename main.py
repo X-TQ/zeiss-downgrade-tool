@@ -125,119 +125,198 @@ class ZeissDowngradeTool:
             print(f"  转换 {os.path.basename(file_path)} 失败: {e}")
             return False
     
-    def create_ansi_version_file(self, folder_path, target_version):
+    def add_invisible_ansi_char_and_convert(self, file_path):
         """
-        创建ANSI编码的version文件，确保Windows记事本识别为ANSI
-        通过在文件末尾添加特殊字节，让UTF-8解码失败，记事本就会使用ANSI
+        强制修改文件为ANSI编码：
+        1. 读取文件内容
+        2. 在末尾添加一个看不见的ANSI字符
+        3. 将整个文件编码修改为ANSI (GBK)
         """
-        print(f"\n=== 创建ANSI编码的version文件 ===")
-        version_path = os.path.join(folder_path, "version")
+        print(f"\n=== 强制修改文件为ANSI编码 ===")
         
         try:
-            # 将版本号转换为ASCII字节
-            version_bytes = target_version.encode('ascii')
+            # 1. 读取原始文件内容
+            original_content = ""
             
-            # 添加一个无效的UTF-8序列
-            # 0x81 是GBK编码中的一个字节，但不是有效的UTF-8起始字节
-            # 单独的0x81无法用UTF-8解码，所以记事本会回退到ANSI
-            invalid_utf8_bytes = b'\x81'
+            # 尝试用常见编码读取
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'gbk', 'gb2312', 'latin-1', 'cp1252']
+            for enc in encodings_to_try:
+                try:
+                    with open(file_path, 'r', encoding=enc) as f:
+                        original_content = f.read()
+                    print(f"  成功用 {enc} 编码读取文件")
+                    break
+                except:
+                    continue
             
-            with open(version_path, 'wb') as f:
-                f.write(version_bytes)
-                f.write(invalid_utf8_bytes)
+            # 如果还是失败，用二进制读取
+            if original_content == "":
+                print(f"  无法用标准编码读取，尝试二进制读取")
+                with open(file_path, 'rb') as f:
+                    raw_bytes = f.read()
+                
+                # 尝试UTF-8解码
+                try:
+                    original_content = raw_bytes.decode('utf-8')
+                except:
+                    try:
+                        original_content = raw_bytes.decode('gbk')
+                    except:
+                        # 最后尝试latin-1，它总是能解码
+                        original_content = raw_bytes.decode('latin-1', errors='ignore')
             
-            print(f"  已创建version文件")
-            print(f"  原始字节: {version_bytes.hex(' ')} {invalid_utf8_bytes.hex(' ')}")
-            print(f"  版本号: {target_version}")
-            print(f"  添加了特殊字节以确保ANSI编码")
+            print(f"  原始内容: '{original_content}'")
+            
+            # 2. 移除可能的BOM字符
+            if original_content.startswith('\ufeff'):  # UTF-8 BOM字符
+                original_content = original_content[1:]
+                print(f"  移除了UTF-8 BOM字符")
+            
+            # 3. 添加看不见的ANSI字符（使用GBK编码中的控制字符）
+            # 使用GBK编码的"零宽空格"或"软连字符" - 这些字符在记事本中不可见
+            # ANSI字符 0xAD 是"软连字符"，在大多数情况下不可见
+            invisible_char = chr(0xAD)  # 软连字符，通常不可见
+            
+            # 或者使用另一个不可见字符：0x81（在GBK中是控制字符）
+            # 但为了更可靠，我们使用软连字符
+            content_with_invisible = original_content.strip() + invisible_char
+            
+            print(f"  添加了不可见的ANSI字符 (0x{ord(invisible_char):02X})")
+            
+            # 4. 用GBK编码写入文件（ANSI编码）
+            with open(file_path, 'wb') as f:
+                gbk_bytes = content_with_invisible.encode('gbk', errors='ignore')
+                f.write(gbk_bytes)
+            
+            print(f"  已将文件编码修改为ANSI (GBK)")
+            print(f"  写入的字节: {gbk_bytes.hex(' ')}")
+            
+            # 5. 验证编码
+            self.verify_ansi_encoding(file_path)
             
             return True
             
         except Exception as e:
-            print(f"  创建version文件失败: {e}")
+            print(f"  强制修改文件编码失败: {e}")
             return False
     
-    def clean_version_file(self, folder_path, target_version):
+    def verify_ansi_encoding(self, file_path):
         """
-        清理version文件：删除乱码字符，只保留版本号
-        但仍确保文件是ANSI编码
+        验证文件是否为ANSI编码
         """
-        print(f"\n=== 清理version文件，删除乱码字符 ===")
-        version_path = os.path.join(folder_path, "version")
-        
-        if not os.path.exists(version_path):
-            print(f"  version文件不存在")
-            return False
+        print(f"\n  验证文件编码:")
         
         try:
-            # 读取文件原始字节
-            with open(version_path, 'rb') as f:
+            with open(file_path, 'rb') as f:
                 raw_bytes = f.read()
             
-            print(f"  原始文件字节: {raw_bytes.hex(' ')}")
-            print(f"  原始字节数: {len(raw_bytes)}")
+            print(f"    文件大小: {len(raw_bytes)} 字节")
+            print(f"    字节内容(HEX): {raw_bytes.hex(' ', 1)}")
             
-            # 方法1：提取所有ASCII字符（版本号应该是ASCII）
+            # 检查是否有BOM
+            if raw_bytes.startswith(b'\xef\xbb\xbf'):
+                print(f"    ❌ 检测到UTF-8 BOM - 文件不是纯ANSI编码")
+                return False
+            
+            # 尝试用GBK读取（ANSI）
+            try:
+                with open(file_path, 'r', encoding='gbk') as f:
+                    content = f.read()
+                print(f"    ✅ 可以用GBK编码读取")
+                
+                # 检查是否包含我们添加的不可见字符
+                if chr(0xAD) in content:
+                    print(f"    ✅ 检测到不可见ANSI字符 (0xAD)")
+                else:
+                    print(f"    ⚠️ 未检测到不可见ANSI字符")
+                
+                return True
+            except Exception as e:
+                print(f"    ❌ 无法用GBK编码读取: {e}")
+                return False
+                
+        except Exception as e:
+            print(f"    验证失败: {e}")
+            return False
+    
+    def clean_version_file_content(self, file_path, target_version):
+        """
+        清理version文件内容，确保只有版本号，没有乱码字符
+        """
+        print(f"\n=== 清理version文件内容 ===")
+        
+        try:
+            # 读取文件内容
+            with open(file_path, 'rb') as f:
+                raw_bytes = f.read()
+            
+            print(f"  原始字节: {raw_bytes.hex(' ')}")
+            
+            # 提取所有可打印的ASCII字符（包括数字和小数点）
             clean_bytes = bytearray()
             for b in raw_bytes:
-                # ASCII可打印字符（包括数字和小数点）
-                if 32 <= b <= 126:
+                # ASCII可打印字符（包括数字、小数点、换行符等）
+                if (32 <= b <= 126) or b in [10, 13]:  # 10=换行，13=回车
                     clean_bytes.append(b)
             
-            # 如果提取到了ASCII字符
             if clean_bytes:
-                # 将字节转换回字符串
                 clean_str = clean_bytes.decode('ascii')
                 print(f"  提取的ASCII内容: '{clean_str}'")
                 
-                # 检查提取的内容是否以目标版本号开头
-                if clean_str.startswith(target_version):
-                    # 只保留版本号（去掉可能提取到的其他ASCII字符）
-                    # 使用正则表达式提取版本号格式（如7.4, 7.2等）
-                    import re
-                    version_pattern = r'\d+\.\d+'
-                    matches = re.findall(version_pattern, clean_str)
+                # 使用正则表达式提取版本号
+                import re
+                version_pattern = r'\d+\.\d+'
+                matches = re.findall(version_pattern, clean_str)
+                
+                if matches:
+                    final_version = matches[0]
+                    print(f"  匹配到的版本号: {final_version}")
                     
-                    if matches:
-                        # 取第一个匹配的版本号
-                        final_version = matches[0]
-                        print(f"  匹配到的版本号: {final_version}")
-                        
-                        # 用GBK编码写入，确保是ANSI格式
-                        with open(version_path, 'wb') as f:
-                            # 使用GBK编码写入，但不添加任何特殊字节
-                            gbk_bytes = final_version.encode('gbk')
-                            f.write(gbk_bytes)
-                        
-                        print(f"  清理完成，最终版本号: {final_version}")
-                        print(f"  最终字节: {gbk_bytes.hex(' ')}")
-                        return True
-                    else:
-                        print(f"  警告：未找到版本号格式，直接写入目标版本号")
+                    # 如果匹配到的版本号与目标版本号不同，使用目标版本号
+                    if final_version != target_version:
+                        print(f"  ⚠️ 匹配的版本号与目标版本号不同，使用目标版本号")
+                        final_version = target_version
                 else:
-                    print(f"  警告：提取的内容不以目标版本号开头")
+                    print(f"  ⚠️ 未找到版本号模式，使用目标版本号")
+                    final_version = target_version
+            else:
+                print(f"  ⚠️ 未提取到ASCII内容，使用目标版本号")
+                final_version = target_version
             
-            # 方法2：如果方法1失败，直接写入目标版本号
-            print(f"  使用方法2：直接写入目标版本号")
-            with open(version_path, 'wb') as f:
-                # 使用GBK编码写入
-                gbk_bytes = target_version.encode('gbk')
+            # 重新写入文件：版本号 + 不可见ANSI字符，用GBK编码
+            invisible_char = chr(0xAD)  # 软连字符
+            final_content = final_version + invisible_char
+            
+            with open(file_path, 'wb') as f:
+                gbk_bytes = final_content.encode('gbk')
                 f.write(gbk_bytes)
             
-            print(f"  直接写入目标版本号: {target_version}")
+            print(f"  最终写入内容: '{final_version}' + 不可见字符")
             print(f"  最终字节: {gbk_bytes.hex(' ')}")
-            return True
             
+            # 验证最终内容
+            try:
+                with open(file_path, 'r', encoding='gbk') as f:
+                    read_content = f.read()
+                
+                # 移除不可见字符用于显示
+                visible_content = read_content.replace(chr(0xAD), '')
+                print(f"  读取的内容（移除不可见字符）: '{visible_content}'")
+                
+                if visible_content == final_version:
+                    print(f"  ✅ 文件内容正确")
+                    return True
+                else:
+                    print(f"  ⚠️ 文件内容不匹配: '{visible_content}' != '{final_version}'")
+                    return False
+                    
+            except Exception as e:
+                print(f"  验证最终内容失败: {e}")
+                return False
+                
         except Exception as e:
             print(f"  清理version文件失败: {e}")
-            # 如果清理失败，尝试直接写入目标版本号
-            try:
-                with open(version_path, 'wb') as f:
-                    f.write(target_version.encode('gbk'))
-                print(f"  错误恢复：直接写入目标版本号")
-                return True
-            except:
-                return False
+            return False
     
     def test_notepad_detection(self, file_path):
         """
@@ -251,11 +330,6 @@ class ZeissDowngradeTool:
         if not raw_bytes:
             print("  文件为空")
             return "empty"
-        
-        # 记事本的简单检测逻辑：
-        # 1. 检查BOM
-        # 2. 尝试UTF-8解码，如果成功且不是纯ASCII，就认为是UTF-8
-        # 3. 否则认为是ANSI
         
         # 检查BOM
         if raw_bytes.startswith(b'\xef\xbb\xbf'):
@@ -303,9 +377,30 @@ class ZeissDowngradeTool:
         for encoding in ['ascii', 'gbk', 'utf-8', 'latin-1']:
             try:
                 content = raw_bytes.decode(encoding)
-                print(f"  用 {encoding} 解码: '{content}'")
+                # 替换不可见字符为可见表示
+                visible_content = content.replace(chr(0xAD), '[0xAD]')
+                print(f"  用 {encoding} 解码: '{visible_content}'")
             except:
                 print(f"  无法用 {encoding} 解码")
+    
+    def delete_backup_files(self, folder_path):
+        """
+        删除备份文件
+        """
+        print(f"\n=== 删除备份文件 ===")
+        backup_path = os.path.join(folder_path, "version.backup")
+        
+        if os.path.exists(backup_path):
+            try:
+                os.remove(backup_path)
+                print(f"  已删除备份文件: {backup_path}")
+                return True
+            except Exception as e:
+                print(f"  删除备份文件失败: {e}")
+                return False
+        else:
+            print(f"  备份文件不存在，无需删除")
+            return True
     
     def start_downgrade(self):
         if not self.selected_folder:
@@ -353,89 +448,97 @@ class ZeissDowngradeTool:
                 if not file_found:
                     print(f"未找到文件: {base_name}")
             
-            # 3. 创建ANSI编码的version文件（带特殊字节）
-            print(f"\n=== 创建version文件 ===")
+            # 3. 处理version文件
+            print(f"\n=== 处理version文件 ===")
             version_path = os.path.join(self.selected_folder, "version")
             
-            # 如果version文件已存在，先备份
+            # 如果version文件已存在，先备份（后续会删除备份）
+            backup_created = False
             if os.path.exists(version_path):
                 try:
                     backup_path = version_path + ".backup"
                     shutil.copy2(version_path, backup_path)
+                    backup_created = True
                     print(f"  已备份原始version文件到: {backup_path}")
+                    
+                    # 分析原始文件的编码
+                    print(f"\n  分析原始version文件:")
+                    self.analyze_file_content(version_path)
                 except:
                     print(f"  警告：无法备份version文件")
             
-            # 创建带特殊字节的version文件（确保ANSI编码）
-            version_created = self.create_ansi_version_file(self.selected_folder, target_version)
+            # 步骤3.1：先创建一个包含版本号的version文件
+            print(f"\n  步骤1：创建包含版本号的version文件")
+            with open(version_path, 'w', encoding='utf-8') as f:
+                f.write(target_version)
             
-            if version_created:
+            # 步骤3.2：强制修改文件为ANSI编码并添加不可见字符
+            print(f"\n  步骤2：强制修改为ANSI编码并添加不可见字符")
+            ansi_converted = self.add_invisible_ansi_char_and_convert(version_path)
+            
+            if ansi_converted:
                 processed_files.append("version")
                 
-                # 分析创建的文件
-                print(f"\n=== 分析创建的version文件 ===")
-                self.analyze_file_content(version_path)
-                
-                # 测试记事本如何识别
-                notepad_result_before = self.test_notepad_detection(version_path)
-                
-                # 4. 清理version文件，删除乱码字符
-                print(f"\n=== 清理version文件，删除乱码字符 ===")
-                cleaned = self.clean_version_file(self.selected_folder, target_version)
+                # 步骤3.3：清理文件内容，确保只有版本号和不可见字符
+                print(f"\n  步骤3：清理文件内容，确保只有版本号和不可见字符")
+                cleaned = self.clean_version_file_content(version_path, target_version)
                 
                 if cleaned:
-                    print(f"  ✅ 成功清理version文件")
-                    
-                    # 分析清理后的文件
-                    print(f"\n=== 分析清理后的version文件 ===")
-                    self.analyze_file_content(version_path)
-                    
-                    # 测试记事本如何识别清理后的文件
-                    notepad_result_after = self.test_notepad_detection(version_path)
+                    # 步骤3.4：删除备份文件
+                    if backup_created:
+                        self.delete_backup_files(self.selected_folder)
                     
                     # 最终验证
                     print(f"\n=== 最终验证 ===")
                     
+                    # 分析最终文件
+                    self.analyze_file_content(version_path)
+                    
+                    # 测试记事本如何识别
+                    notepad_result = self.test_notepad_detection(version_path)
+                    
                     # 验证文件内容
                     try:
                         with open(version_path, 'r', encoding='gbk') as f:
-                            content = f.read().strip()
-                        print(f"  用GBK读取version文件内容: '{content}'")
+                            content = f.read()
+                        
+                        # 移除不可见字符用于比较
+                        visible_content = content.replace(chr(0xAD), '')
+                        print(f"\n  用GBK读取version文件内容: '{visible_content}'")
                         
                         # 检查内容是否正确
-                        if content == target_version:
+                        if visible_content == target_version:
                             print(f"  ✅ version文件内容正确")
                         else:
                             print(f"  ⚠️ 警告：version文件内容不匹配")
                             print(f"     期望: '{target_version}'")
-                            print(f"     实际: '{content}'")
-                            
-                            # 尝试用ASCII读取
-                            try:
-                                with open(version_path, 'rb') as f:
-                                    raw_bytes = f.read()
-                                ascii_content = ""
-                                for b in raw_bytes:
-                                    if 32 <= b <= 126:
-                                        ascii_content += chr(b)
-                                print(f"     提取的ASCII字符: '{ascii_content}'")
-                            except:
-                                pass
+                            print(f"     实际: '{visible_content}'")
                     except Exception as e:
                         print(f"  读取version文件失败: {e}")
                     
-                    print(f"\n记事本识别结果:")
-                    print(f"  清理前: {notepad_result_before}")
-                    print(f"  清理后: {notepad_result_after}")
-                    
-                    if notepad_result_after == "ansi":
+                    print(f"\n记事本识别结果: {notepad_result}")
+                    if notepad_result == "ansi":
                         print(f"  ✅ 成功：记事本将version文件识别为ANSI编码")
                     else:
-                        print(f"  ⚠️ 注意：记事本可能将version文件识别为{notepad_result_after}")
+                        print(f"  ⚠️ 注意：记事本可能将version文件识别为{notepad_result}")
+                        
+                    # 额外验证：尝试读取并显示（不应看到乱码）
+                    print(f"\n  用户视角验证（记事本打开效果）:")
+                    with open(version_path, 'rb') as f:
+                        raw_bytes = f.read()
+                    
+                    # 模拟记事本显示：用GBK解码并移除不可见字符
+                    try:
+                        decoded = raw_bytes.decode('gbk')
+                        visible = decoded.replace(chr(0xAD), '')
+                        print(f"  用户将看到: '{visible}'")
+                        print(f"  文件大小: {len(raw_bytes)} 字节")
+                    except:
+                        print(f"  无法模拟记事本显示")
                 else:
                     print(f"\n❌ 清理version文件失败")
             else:
-                print(f"\n❌ 创建version文件失败！")
+                print(f"\n❌ 强制修改ANSI编码失败！")
             
             print(f"\n=== 处理结果汇总 ===")
             print(f"已处理文件: {', '.join(processed_files) if processed_files else '无'}")
