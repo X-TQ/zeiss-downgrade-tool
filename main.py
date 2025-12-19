@@ -147,19 +147,25 @@ class ZeissDowngradeTool:
                     return False
             
             # 步骤2: 创建新的version文件并写入内容
-            # 使用cp1252编码（Windows ANSI）来强制记事本识别为ANSI
+            # 使用特殊技巧强制Windows记事本识别为ANSI
             content = target_version
             
-            # 直接用cp1252编码写入文件，这是Windows的标准ANSI编码
-            try:
-                with open(version_path, 'w', encoding='cp1252') as f:
-                    f.write(content)
-                print(f"  使用cp1252 (Windows ANSI)编码写入")
-            except UnicodeEncodeError:
-                # 如果cp1252无法编码，回退到gbk
-                with open(version_path, 'w', encoding='gbk') as f:
-                    f.write(content)
-                print(f"  使用gbk编码写入")
+            # Windows记事本编码检测规则：
+            # 1. 如果有UTF-8 BOM -> UTF-8
+            # 2. 如果有UTF-16 BOM -> UTF-16
+            # 3. 如果内容可以完美解码为UTF-8且包含非ASCII -> UTF-8
+            # 4. 否则 -> ANSI
+            
+            # 策略：添加一个在UTF-8中无效但在ANSI中有效的字节
+            with open(version_path, 'wb') as f:
+                # 写入版本号的ASCII字节
+                version_bytes = content.encode('ascii')
+                f.write(version_bytes)
+                # 添加0x81字节 - 这在GBK中是有效的，但在UTF-8中无效
+                # 这会强制记事本识别为ANSI而不是UTF-8
+                f.write(b'\x81')
+            
+            print(f"  使用二进制方式写入，添加ANSI标识字节")
             
             print(f"  已创建新的version文件")
             print(f"  写入内容: '{target_version}'")
@@ -199,7 +205,7 @@ class ZeissDowngradeTool:
                 return False
             
             # 尝试用多种编码解码
-            encodings_to_try = ['cp1252', 'gbk', 'utf-8']
+            encodings_to_try = ['gbk', 'cp1252', 'utf-8']
             content = None
             used_encoding = None
             
@@ -215,7 +221,11 @@ class ZeissDowngradeTool:
             if content is not None:
                 print(f"  文件内容: '{content}'")
                 
-                if content == expected_version:
+                # 移除末尾的0x81字节对应的字符来获取纯净版本号
+                clean_content = content.rstrip('\x81')
+                print(f"  清理后内容: '{clean_content}'")
+                
+                if clean_content == expected_version:
                     print(f"  ✅ 版本号正确: {expected_version}")
                     
                     # 检查记事本识别情况
@@ -229,7 +239,7 @@ class ZeissDowngradeTool:
                     
                     return True
                 else:
-                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{content}'")
+                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{clean_content}'")
                     return False
             else:
                 print(f"  ❌ 无法用任何编码解码文件")
@@ -344,17 +354,20 @@ class ZeissDowngradeTool:
                     print(f"最终文件大小: {len(raw_bytes)} 字节")
                     
                     # 尝试用多种编码解码显示
-                    encodings_to_try = ['cp1252', 'gbk', 'utf-8']
+                    encodings_to_try = ['gbk', 'cp1252', 'utf-8']
                     for encoding in encodings_to_try:
                         try:
                             with open(version_path, 'r', encoding=encoding) as f:
                                 content = f.read()
                             
+                            # 移除末尾的0x81字节对应的字符
+                            clean_content = content.rstrip('\x81')
                             print(f"用{encoding}读取的内容: '{content}'")
-                            if encoding == 'cp1252':
-                                print(f"文件编码: ANSI (CP1252)")
-                            elif encoding == 'gbk':
+                            print(f"清理后的版本号: '{clean_content}'")
+                            if encoding == 'gbk':
                                 print(f"文件编码: ANSI (GBK)")
+                            elif encoding == 'cp1252':
+                                print(f"文件编码: ANSI (CP1252)")
                             else:
                                 print(f"文件编码: {encoding.upper()}")
                             break
