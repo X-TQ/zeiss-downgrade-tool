@@ -130,8 +130,8 @@ class ZeissDowngradeTool:
         创建ANSI编码的version文件
         1. 删除原本的version文件（如果存在）
         2. 创建新的version文件
-        3. 写入版本号和一个不可见的ANSI字符（0xAD）
-        4. 用GBK编码保存（Windows中文系统的ANSI）
+        3. 写入选中的版本号
+        4. 用ANSI编码保存（Windows中文系统使用GBK作为ANSI）
         """
         print(f"\n=== 创建ANSI编码的version文件 ===")
         version_path = os.path.join(folder_path, "version")
@@ -147,20 +147,16 @@ class ZeissDowngradeTool:
                     return False
             
             # 步骤2: 创建新的version文件并写入内容
-            # 准备要写入的内容：版本号 + 不可见ANSI字符
-            # 使用0xAD（软连字符）作为不可见字符
-            invisible_char = chr(0xAD)
-            content = target_version + invisible_char
+            # 只写入版本号，不添加任何额外字符
+            content = target_version
             
-            # 用GBK编码写入文件
-            with open(version_path, 'wb') as f:
-                gbk_bytes = content.encode('gbk')
-                f.write(gbk_bytes)
+            # 用GBK编码写入文件（Windows ANSI编码）
+            with open(version_path, 'w', encoding='gbk') as f:
+                f.write(content)
             
             print(f"  已创建新的version文件")
-            print(f"  写入内容: '{target_version}' + 不可见字符(0xAD)")
-            print(f"  文件大小: {len(gbk_bytes)} 字节")
-            print(f"  文件字节(HEX): {gbk_bytes.hex(' ')}")
+            print(f"  写入内容: '{target_version}'")
+            print(f"  文件编码: ANSI (GBK)")
             
             # 步骤3: 验证文件是否成功创建
             if os.path.exists(version_path):
@@ -199,12 +195,9 @@ class ZeissDowngradeTool:
             try:
                 content = raw_bytes.decode('gbk')
                 print(f"  ✅ 可以用GBK解码")
+                print(f"  文件内容: '{content}'")
                 
-                # 移除不可见字符并检查版本号
-                visible_content = content.replace(chr(0xAD), '')
-                print(f"  可见内容（移除不可见字符后）: '{visible_content}'")
-                
-                if visible_content == expected_version:
+                if content == expected_version:
                     print(f"  ✅ 版本号正确: {expected_version}")
                     
                     # 检查记事本识别情况
@@ -218,7 +211,7 @@ class ZeissDowngradeTool:
                     
                     return True
                 else:
-                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{visible_content}'")
+                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{content}'")
                     return False
                     
             except Exception as e:
@@ -338,10 +331,7 @@ class ZeissDowngradeTool:
                         with open(version_path, 'r', encoding='gbk') as f:
                             content = f.read()
                         
-                        # 移除不可见字符
-                        visible_content = content.replace(chr(0xAD), '')
-                        print(f"用GBK读取的内容: '{visible_content}'")
-                        print(f"移除不可见字符后: '{visible_content}'")
+                        print(f"用GBK读取的内容: '{content}'")
                         print(f"文件编码: ANSI (GBK)")
                         
                     except Exception as e:
