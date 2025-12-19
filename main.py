@@ -147,16 +147,19 @@ class ZeissDowngradeTool:
                     return False
             
             # 步骤2: 创建新的version文件并写入内容
-            # 为了确保Windows记事本识别为ANSI编码，添加一个不可见字符
+            # 使用cp1252编码（Windows ANSI）来强制记事本识别为ANSI
             content = target_version
             
-            # 用二进制方式写入GBK编码，添加0x80字节强制ANSI识别
-            with open(version_path, 'wb') as f:
-                # 写入版本号的GBK字节
-                version_bytes = content.encode('gbk')
-                f.write(version_bytes)
-                # 添加0x80字节（在ANSI中有效，UTF-8中无效）强制记事本识别为ANSI
-                f.write(b'\x80')
+            # 直接用cp1252编码写入文件，这是Windows的标准ANSI编码
+            try:
+                with open(version_path, 'w', encoding='cp1252') as f:
+                    f.write(content)
+                print(f"  使用cp1252 (Windows ANSI)编码写入")
+            except UnicodeEncodeError:
+                # 如果cp1252无法编码，回退到gbk
+                with open(version_path, 'w', encoding='gbk') as f:
+                    f.write(content)
+                print(f"  使用gbk编码写入")
             
             print(f"  已创建新的version文件")
             print(f"  写入内容: '{target_version}'")
@@ -195,17 +198,24 @@ class ZeissDowngradeTool:
                 print(f"  ❌ 检测到UTF-8 BOM")
                 return False
             
-            # 尝试用GBK解码
-            try:
-                content = raw_bytes.decode('gbk')
-                print(f"  ✅ 可以用GBK解码")
+            # 尝试用多种编码解码
+            encodings_to_try = ['cp1252', 'gbk', 'utf-8']
+            content = None
+            used_encoding = None
+            
+            for encoding in encodings_to_try:
+                try:
+                    content = raw_bytes.decode(encoding)
+                    used_encoding = encoding
+                    print(f"  ✅ 可以用{encoding}解码")
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if content is not None:
                 print(f"  文件内容: '{content}'")
                 
-                # 移除末尾的0x80字节对应的字符来获取纯净版本号
-                clean_content = content.rstrip('\x80')
-                print(f"  清理后内容: '{clean_content}'")
-                
-                if clean_content == expected_version:
+                if content == expected_version:
                     print(f"  ✅ 版本号正确: {expected_version}")
                     
                     # 检查记事本识别情况
@@ -219,11 +229,10 @@ class ZeissDowngradeTool:
                     
                     return True
                 else:
-                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{clean_content}'")
+                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{content}'")
                     return False
-                    
-            except Exception as e:
-                print(f"  ❌ 无法用GBK解码: {e}")
+            else:
+                print(f"  ❌ 无法用任何编码解码文件")
                 return False
                 
         except Exception as e:
@@ -334,19 +343,25 @@ class ZeissDowngradeTool:
                     print(f"最终文件字节(HEX): {raw_bytes.hex(' ')}")
                     print(f"最终文件大小: {len(raw_bytes)} 字节")
                     
-                    # 尝试用GBK解码显示
-                    try:
-                        with open(version_path, 'r', encoding='gbk') as f:
-                            content = f.read()
-                        
-                        # 移除末尾的0x80字节对应的字符
-                        clean_content = content.rstrip('\x80')
-                        print(f"用GBK读取的内容: '{content}'")
-                        print(f"清理后的版本号: '{clean_content}'")
-                        print(f"文件编码: ANSI (GBK)")
-                        
-                    except Exception as e:
-                        print(f"用GBK读取失败: {e}")
+                    # 尝试用多种编码解码显示
+                    encodings_to_try = ['cp1252', 'gbk', 'utf-8']
+                    for encoding in encodings_to_try:
+                        try:
+                            with open(version_path, 'r', encoding=encoding) as f:
+                                content = f.read()
+                            
+                            print(f"用{encoding}读取的内容: '{content}'")
+                            if encoding == 'cp1252':
+                                print(f"文件编码: ANSI (CP1252)")
+                            elif encoding == 'gbk':
+                                print(f"文件编码: ANSI (GBK)")
+                            else:
+                                print(f"文件编码: {encoding.upper()}")
+                            break
+                            
+                        except Exception as e:
+                            print(f"用{encoding}读取失败: {e}")
+                            continue
                     
                     # 尝试用ASCII解码显示
                     try:
