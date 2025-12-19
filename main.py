@@ -265,6 +265,8 @@ class ZeissDowngradeTool:
             return
         
         target_version = self.version_var.get()
+        print(f"用户选择的版本号: {target_version}")  # 调试信息
+        
         confirm = messagebox.askyesno(
             "确认操作",
             f"确定要开始降级吗？\n\n文件夹: {os.path.basename(self.selected_folder)}\n降级到: {target_version}"
@@ -313,25 +315,50 @@ class ZeissDowngradeTool:
             if os.path.exists(version_path):
                 print(f"  检测到已存在的version文件，将先删除后重新创建")
             
+            # 确保target_version是从UI获取的字符串
+            print(f"  目标版本号: '{target_version}' (类型: {type(target_version)})")
+            
             version_created = self.create_ansi_version_file(self.selected_folder, target_version)
             
             if version_created:
                 processed_files.append("version")
                 print(f"\n✅ version文件处理成功")
                 
-                # 最终验证
+                # 最终验证：直接读取并显示文件内容
+                print(f"\n=== 最终验证 ===")
                 try:
-                    with open(version_path, 'r', encoding='gbk') as f:
-                        content = f.read()
+                    with open(version_path, 'rb') as f:
+                        raw_bytes = f.read()
                     
-                    # 移除不可见字符
-                    visible_content = content.replace(chr(0xAD), '')
-                    print(f"最终version文件内容: '{visible_content}'")
-                    print(f"文件编码: ANSI (GBK)")
-                    print(f"记事本将显示为: ANSI编码")
+                    print(f"最终文件字节(HEX): {raw_bytes.hex(' ')}")
+                    print(f"最终文件大小: {len(raw_bytes)} 字节")
+                    
+                    # 尝试用GBK解码显示
+                    try:
+                        with open(version_path, 'r', encoding='gbk') as f:
+                            content = f.read()
+                        
+                        # 移除不可见字符
+                        visible_content = content.replace(chr(0xAD), '')
+                        print(f"用GBK读取的内容: '{visible_content}'")
+                        print(f"移除不可见字符后: '{visible_content}'")
+                        print(f"文件编码: ANSI (GBK)")
+                        
+                    except Exception as e:
+                        print(f"用GBK读取失败: {e}")
+                    
+                    # 尝试用ASCII解码显示
+                    try:
+                        ascii_content = ""
+                        for b in raw_bytes:
+                            if 32 <= b <= 126:  # 可打印ASCII字符
+                                ascii_content += chr(b)
+                        print(f"提取的ASCII字符: '{ascii_content}'")
+                    except Exception as e:
+                        print(f"提取ASCII字符失败: {e}")
                     
                 except Exception as e:
-                    print(f"读取version文件失败: {e}")
+                    print(f"最终验证失败: {e}")
             else:
                 print(f"\n❌ version文件创建失败")
             
