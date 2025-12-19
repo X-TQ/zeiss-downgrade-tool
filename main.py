@@ -238,5 +238,6 @@ if __name__ == "__main__":
     screen_height = root.winfo_screenheight()
     x = (screen_width - window_width) // 2
     y = (screen_height - window_height) // 2
-    root.geometry(f"{window_width}x{height}+{x}+{y}")
+    # 关键修正：将 `height` 改为 `window_height`
+    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
     root.mainloop()
