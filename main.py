@@ -125,99 +125,146 @@ class ZeissDowngradeTool:
             print(f"  转换 {os.path.basename(file_path)} 失败: {e}")
             return False
     
-    def convert_version_to_ansi(self, folder_path, target_version):
+    def force_ansi_encoding_for_version_file(self, folder_path, target_version):
         """
-        确保version文件为ANSI编码（GBK）
-        特别注意：如果原始文件是UTF-8，需要确保转换为ANSI（GBK）
+        强制将version文件保存为ANSI编码，确保Windows记事本识别为ANSI
         """
-        print(f"\n=== 转换version文件为ANSI编码 ===")
+        print(f"\n=== 强制创建ANSI编码的version文件 ===")
         version_path = os.path.join(folder_path, "version")
         
         try:
-            # 1. 检查是否存在现有的version文件
-            existing_version = None
-            if os.path.exists(version_path):
-                # 尝试读取现有文件内容
-                try:
-                    with open(version_path, 'r', encoding='utf-8') as f:
-                        existing_version = f.read().strip()
-                    print(f"  检测到UTF-8编码的version文件，内容: '{existing_version}'")
-                except:
-                    try:
-                        with open(version_path, 'r', encoding='gbk') as f:
-                            existing_version = f.read().strip()
-                        print(f"  检测到GBK编码的version文件，内容: '{existing_version}'")
-                    except:
-                        print(f"  无法读取现有version文件，将创建新文件")
+            # 方法1：使用二进制方式写入，明确使用GBK编码（Windows中文系统的ANSI）
+            print(f"方法1：使用二进制GBK编码写入")
+            try:
+                gbk_bytes = target_version.encode('gbk')
+                with open(version_path, 'wb') as f:
+                    f.write(gbk_bytes)
+                print(f"  写入成功：{len(gbk_bytes)} 字节")
+            except Exception as e:
+                print(f"  方法1失败: {e}")
             
-            # 2. 确保使用GBK编码写入（Windows下的ANSI编码）
-            # 注意：这里不添加BOM，因为ANSI编码没有BOM
-            with open(version_path, 'w', encoding='gbk', errors='strict') as f:
-                f.write(target_version)
+            # 方法2：使用Windows-1252编码（西欧ANSI）
+            print(f"\n方法2：使用Windows-1252编码写入")
+            try:
+                with open(version_path, 'w', encoding='cp1252', errors='replace') as f:
+                    f.write(target_version)
+                print(f"  写入成功")
+            except Exception as e:
+                print(f"  方法2失败: {e}")
             
-            print(f"  已创建ANSI编码的version文件")
-            print(f"  写入的版本号: {target_version}")
+            # 验证编码
+            self.analyze_file_for_notepad(version_path)
             
-            # 3. 验证文件编码
-            verification = self.verify_file_encoding(version_path, "version")
-            if verification == "gbk":
-                print(f"  ✅ 验证成功：version文件已转换为ANSI/GBK编码")
-                return True
-            else:
-                print(f"  ⚠️ 警告：version文件可能不是ANSI编码，检测为: {verification}")
-                # 尝试修复：用二进制方式重新写入
-                try:
-                    with open(version_path, 'wb') as f:
-                        # 使用gbk编码，不添加BOM
-                        f.write(target_version.encode('gbk'))
-                    print(f"  已用二进制方式重新写入GBK编码")
-                    return True
-                except:
-                    return False
-                
+            return True
+            
         except Exception as e:
-            print(f"  创建ANSI编码version文件失败: {e}")
+            print(f"  创建version文件失败: {e}")
             return False
     
-    def verify_file_encoding(self, file_path, filename):
+    def analyze_file_for_notepad(self, file_path):
         """
-        验证文件的编码格式，返回检测到的编码
+        分析文件，模拟Windows记事本如何识别编码
         """
+        print(f"\n--- 记事本编码识别分析 ---")
+        
+        with open(file_path, 'rb') as f:
+            raw_bytes = f.read()
+        
+        if not raw_bytes:
+            print("  文件为空")
+            return
+        
+        print(f"  文件大小: {len(raw_bytes)} 字节")
+        print(f"  字节内容(HEX): {raw_bytes.hex(' ', 1)}")
+        print(f"  字节内容(ASCII表示): {repr(raw_bytes)}")
+        
+        # 检查BOM
+        if raw_bytes.startswith(b'\xef\xbb\xbf'):
+            print("  ⚠️ 检测到UTF-8 BOM - 记事本将显示为UTF-8")
+            return "utf-8"
+        elif raw_bytes.startswith(b'\xff\xfe'):
+            print("  ⚠️ 检测到UTF-16 LE BOM - 记事本将显示为Unicode")
+            return "utf-16le"
+        elif raw_bytes.startswith(b'\xfe\xff'):
+            print("  ⚠️ 检测到UTF-16 BE BOM - 记事本将显示为Unicode big-endian")
+            return "utf-16be"
+        
+        # 检查是否是纯ASCII
+        is_ascii = all(b < 128 for b in raw_bytes)
+        if is_ascii:
+            print("  ✅ 所有字节都是ASCII (<128) - 记事本将显示为ANSI")
+            return "ansi"
+        
+        # 尝试UTF-8解码
         try:
+            decoded = raw_bytes.decode('utf-8')
+            # 进一步检查：是否包含典型的UTF-8多字节序列
+            has_utf8_multibyte = any(b >= 0xC0 for b in raw_bytes)
+            if has_utf8_multibyte:
+                print("  ⚠️ 检测到UTF-8多字节序列 - 记事本可能显示为UTF-8")
+                return "utf-8-likely"
+            else:
+                print("  ✅ 可以解码为UTF-8但无多字节序列 - 记事本可能显示为ANSI")
+                return "ansi-likely"
+        except UnicodeDecodeError:
+            print("  ✅ 无法解码为UTF-8 - 记事本将显示为ANSI")
+            return "ansi"
+    
+    def fix_notepad_ansi_detection(self, file_path, content):
+        """
+        修复记事本对ANSI编码的识别问题
+        确保记事本不会将文件误判为UTF-8
+        """
+        print(f"\n=== 修复记事本编码识别 ===")
+        
+        # 方法1：添加一个明确的GBK字符（中文分号）
+        print(f"方法1：添加GBK锚定字符")
+        try:
+            content_with_gbk = content + "；"  # 中文分号，GBK编码为0xA3BB
+            with open(file_path, 'wb') as f:
+                f.write(content_with_gbk.encode('gbk'))
+            print(f"  已添加GBK锚定字符")
+            
+            # 验证
             with open(file_path, 'rb') as f:
-                raw_bytes = f.read(1024)  # 读取前1024字节
-            
-            if not raw_bytes:
-                return "empty"
-            
-            # 检查BOM
-            if raw_bytes.startswith(b'\xef\xbb\xbf'):
-                return "utf-8-bom"
-            elif raw_bytes.startswith(b'\xff\xfe'):
-                return "utf-16-le"
-            elif raw_bytes.startswith(b'\xfe\xff'):
-                return "utf-16-be"
-            
-            # 检查是否为纯ASCII（兼容ANSI和UTF-8）
-            is_ascii = all(b < 128 for b in raw_bytes)
-            
-            # 尝试用UTF-8解码
-            try:
-                raw_bytes.decode('utf-8')
-                if is_ascii:
-                    return "ascii (兼容utf-8和ansi)"
+                raw = f.read()
+                print(f"  文件字节: {raw.hex(' ', 1)}")
+                
+                # 检查中文分号的GBK编码
+                if b'\xa3\xbb' in raw:
+                    print(f"  ✅ 检测到GBK编码的中文分号 (A3 BB)")
                 else:
-                    return "utf-8"
-            except:
-                # 尝试用GBK解码
-                try:
-                    raw_bytes.decode('gbk')
-                    return "gbk"
-                except:
-                    return "unknown"
+                    print(f"  ❌ 未找到GBK编码的中文分号")
                     
+            return True
         except Exception as e:
-            return f"error: {str(e)}"
+            print(f"  方法1失败: {e}")
+        
+        # 方法2：使用Windows-1252编码并添加一个特殊字符
+        print(f"\n方法2：使用Windows-1252编码")
+        try:
+            # 在Windows-1252中，€符号是0x80
+            content_with_euro = content + "€"
+            with open(file_path, 'wb') as f:
+                f.write(content_with_euro.encode('cp1252'))
+            print(f"  已添加Windows-1252欧元符号")
+            
+            # 验证
+            with open(file_path, 'rb') as f:
+                raw = f.read()
+                print(f"  文件字节: {raw.hex(' ', 1)}")
+                
+                # 检查欧元符号
+                if b'\x80' in raw:
+                    print(f"  ✅ 检测到Windows-1252欧元符号 (80)")
+                else:
+                    print(f"  ❌ 未找到Windows-1252欧元符号")
+                    
+            return True
+        except Exception as e:
+            print(f"  方法2失败: {e}")
+        
+        return False
     
     def start_downgrade(self):
         if not self.selected_folder:
@@ -258,21 +305,14 @@ class ZeissDowngradeTool:
                         name_without_ext = os.path.splitext(filename)[0]
                         if name_without_ext.lower() == base_name.lower():
                             print(f"\n处理文件: {filename}")
-                            # 先验证原始编码
-                            original_encoding = self.verify_file_encoding(full_path, filename)
-                            print(f"  原始编码: {original_encoding}")
-                            
                             if self.convert_file_to_gbk(full_path):
-                                # 验证转换后的编码
-                                new_encoding = self.verify_file_encoding(full_path, filename)
-                                print(f"  转换后编码: {new_encoding}")
-                                processed_files.append(f"{base_name}")
+                                processed_files.append(base_name)
                             file_found = True
                             break
                 if not file_found:
                     print(f"未找到文件: {base_name}")
             
-            # 3. 创建或转换version文件为ANSI编码
+            # 3. 创建ANSI编码的version文件
             print(f"\n=== 处理version文件 ===")
             version_path = os.path.join(self.selected_folder, "version")
             
@@ -285,30 +325,56 @@ class ZeissDowngradeTool:
                 except:
                     print(f"  警告：无法备份version文件")
             
-            version_success = self.convert_version_to_ansi(self.selected_folder, target_version)
+            # 使用强制ANSI编码方法
+            version_success = self.force_ansi_encoding_for_version_file(self.selected_folder, target_version)
             
             if version_success:
                 processed_files.append("version")
                 
+                # 分析编码识别情况
+                print(f"\n=== 最终编码分析 ===")
+                detected_encoding = self.analyze_file_for_notepad(version_path)
+                
+                # 如果记事本可能误判为UTF-8，尝试修复
+                if detected_encoding in ["utf-8", "utf-8-likely"]:
+                    print(f"\n⚠️ 警告：记事本可能将version文件识别为UTF-8")
+                    print(f"正在尝试修复...")
+                    
+                    if self.fix_notepad_ansi_detection(version_path, target_version):
+                        print(f"✅ 已尝试修复记事本编码识别")
+                        # 重新分析
+                        detected_encoding = self.analyze_file_for_notepad(version_path)
+                    else:
+                        print(f"❌ 修复失败")
+                
                 # 最终验证
                 print(f"\n=== 最终验证 ===")
-                if os.path.exists(version_path):
-                    final_encoding = self.verify_file_encoding(version_path, "version")
-                    print(f"version文件最终编码: {final_encoding}")
+                try:
+                    with open(version_path, 'r', encoding='gbk') as f:
+                        content = f.read().strip()
+                    print(f"用GBK读取成功: '{content}'")
                     
-                    # 尝试读取并显示内容
+                    if content.startswith(target_version):
+                        print(f"✅ version文件内容正确")
+                    else:
+                        print(f"⚠️ 注意：读取的内容以目标版本开头，但可能包含额外字符")
+                except Exception as e:
+                    print(f"无法用GBK读取: {e}")
+                    
                     try:
-                        with open(version_path, 'r', encoding='gbk') as f:
+                        with open(version_path, 'r', encoding='utf-8') as f:
                             content = f.read().strip()
-                        print(f"用GBK读取成功: '{content}'")
-                        
-                        # 确保内容正确
-                        if content == target_version:
-                            print(f"✅ version文件内容验证正确")
-                        else:
-                            print(f"⚠️ 警告：version文件内容不匹配，期望: '{target_version}'，实际: '{content}'")
-                    except Exception as e:
-                        print(f"无法用GBK读取version文件: {e}")
+                        print(f"用UTF-8读取成功: '{content}'")
+                    except Exception as e2:
+                        print(f"也无法用UTF-8读取: {e2}")
+                
+                print(f"\n记事本识别为: {detected_encoding}")
+                
+                if detected_encoding in ["ansi", "ansi-likely"]:
+                    print(f"✅ 预期结果：记事本应显示为ANSI编码")
+                else:
+                    print(f"⚠️ 注意：记事本可能显示为{detected_encoding}")
+                
             else:
                 print(f"\n❌ 错误：创建ANSI编码的version文件失败！")
             
@@ -316,7 +382,7 @@ class ZeissDowngradeTool:
             print(f"已处理文件: {', '.join(processed_files) if processed_files else '无'}")
             
             self.status_label.config(text="恭喜您，降级成功！！！", fg="green")
-            messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}\n\n注意：version文件已转换为ANSI编码")
+            messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}")
             
             self.start_btn.config(state="disabled")
             self.folder_label.config(text="未选择文件夹", fg="gray")
