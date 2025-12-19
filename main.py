@@ -155,18 +155,58 @@ class ZeissDowngradeTool:
             
             try:
                 if sys.platform.startswith('win'):
-                    # 在Windows系统上使用echo命令创建ANSI文件
-                    # echo命令默认使用系统的ANSI编码
-                    cmd = f'echo {content} > "{version_path}"'
-                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                    
-                    if result.returncode == 0:
-                        print(f"  使用Windows echo命令创建ANSI文件成功")
-                    else:
-                        # 回退方案：使用Python但不添加特殊字节
-                        with open(version_path, 'w', encoding='gbk') as f:
-                            f.write(content)
-                        print(f"  回退使用GBK编码写入")
+                    # 终极方案：使用Windows API直接创建ANSI文件
+                    try:
+                        import ctypes
+                        from ctypes import wintypes
+                        
+                        # 获取系统默认ANSI代码页
+                        kernel32 = ctypes.windll.kernel32
+                        cp_acp = 0  # CP_ACP = 系统默认ANSI代码页
+                        
+                        # 将字符串转换为系统ANSI编码的字节
+                        content_bytes = content.encode('gbk')
+                        
+                        # 使用CreateFile和WriteFile API直接写入
+                        GENERIC_WRITE = 0x40000000
+                        CREATE_ALWAYS = 2
+                        FILE_ATTRIBUTE_NORMAL = 0x80
+                        
+                        handle = kernel32.CreateFileW(
+                            version_path,
+                            GENERIC_WRITE,
+                            0,
+                            None,
+                            CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL,
+                            None
+                        )
+                        
+                        if handle != -1:  # INVALID_HANDLE_VALUE
+                            bytes_written = wintypes.DWORD()
+                            success = kernel32.WriteFile(
+                                handle,
+                                content_bytes,
+                                len(content_bytes),
+                                ctypes.byref(bytes_written),
+                                None
+                            )
+                            kernel32.CloseHandle(handle)
+                            
+                            if success:
+                                print(f"  使用Windows API创建ANSI文件成功")
+                            else:
+                                raise Exception("WriteFile失败")
+                        else:
+                            raise Exception("CreateFile失败")
+                            
+                    except Exception as api_error:
+                        print(f"  Windows API方法失败: {api_error}")
+                        # 回退到简单的二进制写入
+                        with open(version_path, 'wb') as f:
+                            f.write(content.encode('gbk'))
+                        print(f"  使用二进制GBK写入")
+                        
                 else:
                     # 非Windows系统，直接使用GBK
                     with open(version_path, 'w', encoding='gbk') as f:
