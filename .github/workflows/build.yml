@@ -3,7 +3,7 @@ name: Build Windows EXE
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch: # 允许手动触发
 
 jobs:
   build:
@@ -23,10 +23,10 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed ^
-                      --name "蔡司降级工具" ^
-                      --add-data "zeiss_icon.ico;." ^  # 关键修改：将图标文件打包进EXE
-                      --clean ^
+          pyinstaller --onefile --windowed `
+                      --name "蔡司降级工具" `
+                      --add-data "zeiss_icon.ico;." `
+                      --clean `
                       main.py
 
       - name: Upload artifact
