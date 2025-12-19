@@ -80,90 +80,144 @@ class ZeissDowngradeTool:
     def convert_file_to_gbk(self, file_path):
         """转换普通文件为GBK编码"""
         try:
-            encodings_to_try = ['utf-8', 'gbk', 'gb2312', 'latin-1', 'cp1252', 'utf-8-sig']
+            # 先尝试用各种可能的编码读取
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'gbk', 'gb2312', 'latin-1', 'cp1252']
             content = None
+            used_encoding = None
+            
             for enc in encodings_to_try:
                 try:
                     with open(file_path, 'r', encoding=enc) as f:
                         content = f.read()
+                    used_encoding = enc
+                    print(f"  成功使用 {enc} 编码读取 {os.path.basename(file_path)}")
                     break
-                except:
+                except Exception as e:
                     continue
             
+            # 如果以上方法都失败，尝试二进制读取
             if content is None:
+                print(f"  无法用标准编码读取 {os.path.basename(file_path)}，尝试二进制解码")
                 with open(file_path, 'rb') as f:
                     raw_data = f.read()
+                
+                # 尝试UTF-8解码
                 try:
                     content = raw_data.decode('utf-8')
+                    used_encoding = 'utf-8 (binary)'
                 except:
                     try:
                         content = raw_data.decode('gbk')
+                        used_encoding = 'gbk (binary)'
                     except:
+                        # 最后尝试latin-1，它总是能解码
                         content = raw_data.decode('latin-1', errors='ignore')
+                        used_encoding = 'latin-1 (binary)'
             
+            # 用GBK编码写入文件
             with open(file_path, 'w', encoding='gbk', errors='ignore') as f:
                 f.write(content)
+            
+            print(f"  已将 {os.path.basename(file_path)} 转换为GBK编码 (原编码: {used_encoding})")
             return True
+            
         except Exception as e:
-            print(f"转换 {os.path.basename(file_path)} 失败: {e}")
+            print(f"  转换 {os.path.basename(file_path)} 失败: {e}")
             return False
     
     def convert_version_to_ansi(self, folder_path, target_version):
         """
-        将version文件转换为ANSI编码（GBK）
-        这是一个简化的版本，直接使用GBK编码写入
+        确保version文件为ANSI编码（GBK）
+        特别注意：如果原始文件是UTF-8，需要确保转换为ANSI（GBK）
         """
         print(f"\n=== 转换version文件为ANSI编码 ===")
         version_path = os.path.join(folder_path, "version")
         
         try:
-            # 直接使用GBK编码写入，GBK是Windows中文系统的ANSI编码
-            with open(version_path, 'w', encoding='gbk') as f:
+            # 1. 检查是否存在现有的version文件
+            existing_version = None
+            if os.path.exists(version_path):
+                # 尝试读取现有文件内容
+                try:
+                    with open(version_path, 'r', encoding='utf-8') as f:
+                        existing_version = f.read().strip()
+                    print(f"  检测到UTF-8编码的version文件，内容: '{existing_version}'")
+                except:
+                    try:
+                        with open(version_path, 'r', encoding='gbk') as f:
+                            existing_version = f.read().strip()
+                        print(f"  检测到GBK编码的version文件，内容: '{existing_version}'")
+                    except:
+                        print(f"  无法读取现有version文件，将创建新文件")
+            
+            # 2. 确保使用GBK编码写入（Windows下的ANSI编码）
+            # 注意：这里不添加BOM，因为ANSI编码没有BOM
+            with open(version_path, 'w', encoding='gbk', errors='strict') as f:
                 f.write(target_version)
             
-            print(f"已成功创建ANSI编码的version文件")
-            print(f"版本号: {target_version}")
-            print(f"编码: GBK (ANSI)")
+            print(f"  已创建ANSI编码的version文件")
+            print(f"  写入的版本号: {target_version}")
             
-            # 验证文件编码
-            self.verify_encoding(version_path)
-            return True
+            # 3. 验证文件编码
+            verification = self.verify_file_encoding(version_path, "version")
+            if verification == "gbk":
+                print(f"  ✅ 验证成功：version文件已转换为ANSI/GBK编码")
+                return True
+            else:
+                print(f"  ⚠️ 警告：version文件可能不是ANSI编码，检测为: {verification}")
+                # 尝试修复：用二进制方式重新写入
+                try:
+                    with open(version_path, 'wb') as f:
+                        # 使用gbk编码，不添加BOM
+                        f.write(target_version.encode('gbk'))
+                    print(f"  已用二进制方式重新写入GBK编码")
+                    return True
+                except:
+                    return False
+                
         except Exception as e:
-            print(f"创建ANSI编码version文件失败: {e}")
+            print(f"  创建ANSI编码version文件失败: {e}")
             return False
     
-    def verify_encoding(self, file_path):
-        """验证文件的编码格式"""
-        print(f"\n验证文件编码:")
+    def verify_file_encoding(self, file_path, filename):
+        """
+        验证文件的编码格式，返回检测到的编码
+        """
         try:
-            # 尝试用GBK读取
-            with open(file_path, 'r', encoding='gbk') as f:
-                gbk_content = f.read()
-            print(f"  用GBK编码读取成功: '{gbk_content}'")
-            
-            # 尝试用UTF-8读取
             with open(file_path, 'rb') as f:
-                raw_bytes = f.read()
+                raw_bytes = f.read(1024)  # 读取前1024字节
             
-            # 检查是否是纯ASCII字符
-            if all(b < 128 for b in raw_bytes):
-                print(f"  文件只包含ASCII字符，兼容所有编码")
-            else:
-                # 检查是否是有效的UTF-8
-                try:
-                    raw_bytes.decode('utf-8')
-                    print(f"  文件也是有效的UTF-8编码")
-                except:
-                    print(f"  文件不是有效的UTF-8编码，可能是纯ANSI编码")
+            if not raw_bytes:
+                return "empty"
             
             # 检查BOM
             if raw_bytes.startswith(b'\xef\xbb\xbf'):
-                print(f"  【注意】文件包含UTF-8 BOM标记")
-            else:
-                print(f"  文件无BOM标记（符合ANSI编码特征）")
-                
+                return "utf-8-bom"
+            elif raw_bytes.startswith(b'\xff\xfe'):
+                return "utf-16-le"
+            elif raw_bytes.startswith(b'\xfe\xff'):
+                return "utf-16-be"
+            
+            # 检查是否为纯ASCII（兼容ANSI和UTF-8）
+            is_ascii = all(b < 128 for b in raw_bytes)
+            
+            # 尝试用UTF-8解码
+            try:
+                raw_bytes.decode('utf-8')
+                if is_ascii:
+                    return "ascii (兼容utf-8和ansi)"
+                else:
+                    return "utf-8"
+            except:
+                # 尝试用GBK解码
+                try:
+                    raw_bytes.decode('gbk')
+                    return "gbk"
+                except:
+                    return "unknown"
+                    
         except Exception as e:
-            print(f"  验证过程中出错: {e}")
+            return f"error: {str(e)}"
     
     def start_downgrade(self):
         if not self.selected_folder:
@@ -204,27 +258,65 @@ class ZeissDowngradeTool:
                         name_without_ext = os.path.splitext(filename)[0]
                         if name_without_ext.lower() == base_name.lower():
                             print(f"\n处理文件: {filename}")
+                            # 先验证原始编码
+                            original_encoding = self.verify_file_encoding(full_path, filename)
+                            print(f"  原始编码: {original_encoding}")
+                            
                             if self.convert_file_to_gbk(full_path):
-                                processed_files.append(base_name)
+                                # 验证转换后的编码
+                                new_encoding = self.verify_file_encoding(full_path, filename)
+                                print(f"  转换后编码: {new_encoding}")
+                                processed_files.append(f"{base_name}")
                             file_found = True
                             break
                 if not file_found:
                     print(f"未找到文件: {base_name}")
             
-            # 3. 创建ANSI编码的version文件
+            # 3. 创建或转换version文件为ANSI编码
+            print(f"\n=== 处理version文件 ===")
             version_path = os.path.join(self.selected_folder, "version")
+            
+            # 如果version文件已存在，先备份
+            if os.path.exists(version_path):
+                try:
+                    backup_path = version_path + ".backup"
+                    shutil.copy2(version_path, backup_path)
+                    print(f"  已备份原始version文件到: {backup_path}")
+                except:
+                    print(f"  警告：无法备份version文件")
+            
             version_success = self.convert_version_to_ansi(self.selected_folder, target_version)
             
             if version_success:
                 processed_files.append("version")
+                
+                # 最终验证
+                print(f"\n=== 最终验证 ===")
+                if os.path.exists(version_path):
+                    final_encoding = self.verify_file_encoding(version_path, "version")
+                    print(f"version文件最终编码: {final_encoding}")
+                    
+                    # 尝试读取并显示内容
+                    try:
+                        with open(version_path, 'r', encoding='gbk') as f:
+                            content = f.read().strip()
+                        print(f"用GBK读取成功: '{content}'")
+                        
+                        # 确保内容正确
+                        if content == target_version:
+                            print(f"✅ version文件内容验证正确")
+                        else:
+                            print(f"⚠️ 警告：version文件内容不匹配，期望: '{target_version}'，实际: '{content}'")
+                    except Exception as e:
+                        print(f"无法用GBK读取version文件: {e}")
             else:
-                print(f"\n【错误】创建ANSI编码的version文件失败！")
+                print(f"\n❌ 错误：创建ANSI编码的version文件失败！")
             
             print(f"\n=== 处理结果汇总 ===")
             print(f"已处理文件: {', '.join(processed_files) if processed_files else '无'}")
             
             self.status_label.config(text="恭喜您，降级成功！！！", fg="green")
-            messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}")
+            messagebox.showinfo("完成", f"恭喜您，降级成功！！！\n已降级到版本: {target_version}\n\n注意：version文件已转换为ANSI编码")
             
             self.start_btn.config(state="disabled")
             self.folder_label.config(text="未选择文件夹", fg="gray")
