@@ -147,21 +147,38 @@ class ZeissDowngradeTool:
                     return False
             
             # 步骤2: 创建新的version文件并写入内容
-            # 终极ANSI强制识别方案
+            # 使用Windows系统命令创建真正的ANSI文件
             content = target_version
             
-            # 经过研究，Windows记事本的编码检测有一个关键点：
-            # 如果文件包含0x80-0xFF范围的字节且不能被UTF-8解码，就会识别为ANSI
+            import subprocess
+            import sys
             
-            # 方案：在版本号后添加0xC0字节（在UTF-8中是无效的起始字节）
-            with open(version_path, 'wb') as f:
-                # 写入版本号
-                version_bytes = content.encode('ascii')  # 版本号通常是ASCII
-                f.write(version_bytes)
-                # 添加0xC0字节 - 这在UTF-8中是无效的，强制ANSI识别
-                f.write(b'\xC0')
-            
-            print(f"  使用0xC0字节强制ANSI识别")
+            try:
+                if sys.platform.startswith('win'):
+                    # 在Windows系统上使用echo命令创建ANSI文件
+                    # echo命令默认使用系统的ANSI编码
+                    cmd = f'echo {content} > "{version_path}"'
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                    
+                    if result.returncode == 0:
+                        print(f"  使用Windows echo命令创建ANSI文件成功")
+                    else:
+                        # 回退方案：使用Python但不添加特殊字节
+                        with open(version_path, 'w', encoding='gbk') as f:
+                            f.write(content)
+                        print(f"  回退使用GBK编码写入")
+                else:
+                    # 非Windows系统，直接使用GBK
+                    with open(version_path, 'w', encoding='gbk') as f:
+                        f.write(content)
+                    print(f"  使用GBK编码写入")
+                    
+            except Exception as e:
+                print(f"  系统命令失败: {e}")
+                # 最终回退方案
+                with open(version_path, 'w', encoding='gbk') as f:
+                    f.write(content)
+                print(f"  使用GBK编码写入（回退方案）")
             
             print(f"  已创建新的version文件")
             print(f"  写入内容: '{target_version}'")
@@ -201,7 +218,7 @@ class ZeissDowngradeTool:
                 return False
             
             # 尝试用多种编码解码
-            encodings_to_try = ['gbk', 'cp1252', 'latin-1']
+            encodings_to_try = ['gbk', 'cp1252', 'utf-8', 'latin-1']
             content = None
             used_encoding = None
             
@@ -217,8 +234,8 @@ class ZeissDowngradeTool:
             if content is not None:
                 print(f"  文件内容: '{content}'")
                 
-                # 移除末尾的0xC0字节对应的字符来获取纯净版本号
-                clean_content = content.rstrip('\xC0')
+                # Windows echo命令可能会添加换行符，需要清理
+                clean_content = content.strip()
                 print(f"  清理后内容: '{clean_content}'")
                 
                 if clean_content == expected_version:
@@ -350,22 +367,24 @@ class ZeissDowngradeTool:
                     print(f"最终文件大小: {len(raw_bytes)} 字节")
                     
                     # 尝试用多种编码解码显示
-                    encodings_to_try = ['gbk', 'cp1252', 'latin-1']
+                    encodings_to_try = ['gbk', 'cp1252', 'utf-8', 'latin-1']
                     for encoding in encodings_to_try:
                         try:
                             with open(version_path, 'r', encoding=encoding) as f:
                                 content = f.read()
                             
-                            # 移除末尾的0xC0字节对应的字符
-                            clean_content = content.rstrip('\xC0')
+                            # 清理可能的换行符
+                            clean_content = content.strip()
                             print(f"用{encoding}读取的内容: '{content}'")
                             print(f"清理后的版本号: '{clean_content}'")
                             if encoding == 'gbk':
                                 print(f"文件编码: ANSI (GBK)")
                             elif encoding == 'cp1252':
                                 print(f"文件编码: ANSI (CP1252)")
+                            elif encoding == 'utf-8':
+                                print(f"文件编码: UTF-8")
                             else:
-                                print(f"文件编码: ANSI ({encoding.upper()})")
+                                print(f"文件编码: {encoding.upper()}")
                             break
                             
                         except Exception as e:
