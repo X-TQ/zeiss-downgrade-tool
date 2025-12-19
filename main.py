@@ -147,12 +147,16 @@ class ZeissDowngradeTool:
                     return False
             
             # 步骤2: 创建新的version文件并写入内容
-            # 只写入版本号，不添加任何额外字符
+            # 为了确保Windows记事本识别为ANSI编码，添加一个不可见字符
             content = target_version
             
-            # 用GBK编码写入文件（Windows ANSI编码）
-            with open(version_path, 'w', encoding='gbk') as f:
-                f.write(content)
+            # 用二进制方式写入GBK编码，添加0x80字节强制ANSI识别
+            with open(version_path, 'wb') as f:
+                # 写入版本号的GBK字节
+                version_bytes = content.encode('gbk')
+                f.write(version_bytes)
+                # 添加0x80字节（在ANSI中有效，UTF-8中无效）强制记事本识别为ANSI
+                f.write(b'\x80')
             
             print(f"  已创建新的version文件")
             print(f"  写入内容: '{target_version}'")
@@ -197,7 +201,11 @@ class ZeissDowngradeTool:
                 print(f"  ✅ 可以用GBK解码")
                 print(f"  文件内容: '{content}'")
                 
-                if content == expected_version:
+                # 移除末尾的0x80字节对应的字符来获取纯净版本号
+                clean_content = content.rstrip('\x80')
+                print(f"  清理后内容: '{clean_content}'")
+                
+                if clean_content == expected_version:
                     print(f"  ✅ 版本号正确: {expected_version}")
                     
                     # 检查记事本识别情况
@@ -211,7 +219,7 @@ class ZeissDowngradeTool:
                     
                     return True
                 else:
-                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{content}'")
+                    print(f"  ❌ 版本号不正确，期望: '{expected_version}'，实际: '{clean_content}'")
                     return False
                     
             except Exception as e:
@@ -331,7 +339,10 @@ class ZeissDowngradeTool:
                         with open(version_path, 'r', encoding='gbk') as f:
                             content = f.read()
                         
+                        # 移除末尾的0x80字节对应的字符
+                        clean_content = content.rstrip('\x80')
                         print(f"用GBK读取的内容: '{content}'")
+                        print(f"清理后的版本号: '{clean_content}'")
                         print(f"文件编码: ANSI (GBK)")
                         
                     except Exception as e:
