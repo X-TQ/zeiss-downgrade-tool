@@ -32,8 +32,8 @@ class ZeissDowngradeTool:
 
     def generate_versions(self):
         versions = []
-        current = 6.8
-        while current >= 5.4:
+        current = 7.4
+        while current >= 6.8:
             versions.append(f"{current:.1f}")
             current -= 0.2
             current = round(current, 1)
@@ -53,7 +53,7 @@ class ZeissDowngradeTool:
         frame2.pack(pady=10)
         version_label = tk.Label(frame2, text="选择降级版本：", font=("Arial", 10))
         version_label.pack(pady=5)
-        self.version_var = tk.StringVar(value="6.8")
+        self.version_var = tk.StringVar(value="7.4")
         version_combo = ttk.Combobox(frame2, textvariable=self.version_var,
                                    values=self.versions, state="readonly", font=("Arial", 10), width=10)
         version_combo.pack(pady=5)
